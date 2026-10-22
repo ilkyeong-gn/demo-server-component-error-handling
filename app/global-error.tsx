@@ -26,7 +26,7 @@ export default function GlobalError({
 
           <button
             onClick={() => {
-              window.location.href = '/';
+              window.location.href = '/demo/boundaries';
             }}
             className="w-full py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-lg font-bold text-sm transition-colors cursor-pointer"
           >

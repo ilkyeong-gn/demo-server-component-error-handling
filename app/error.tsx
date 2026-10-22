@@ -20,6 +20,9 @@ export default function RootError({
 
   const handleTransitionRecovery = () => {
     setRetryStatus('startTransition 복구 실행 중...');
+    if (typeof window !== 'undefined' && window.location.search.includes('chaos')) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
     startTransition(() => {
       router.refresh();
       reset();
