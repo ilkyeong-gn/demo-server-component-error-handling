@@ -40,6 +40,65 @@ export default function HomePage() {
     },
   ];
 
+  const quickPresets = [
+    {
+      step: 'Step 1',
+      principle: '원칙 1',
+      label: '404 Not Found 프리미티브',
+      href: '/demo/taxonomy?chaos=not_found',
+      badge: 'HTTP 404',
+    },
+    {
+      step: 'Step 1',
+      principle: '원칙 1',
+      label: '401 Unauthorized 프리미티브',
+      href: '/demo/taxonomy?chaos=unauthorized',
+      badge: 'HTTP 401',
+    },
+    {
+      step: 'Step 1',
+      principle: '원칙 1',
+      label: '403 Forbidden 프리미티브',
+      href: '/demo/taxonomy?chaos=forbidden',
+      badge: 'HTTP 403',
+    },
+    {
+      step: 'Step 2',
+      principle: '원칙 2',
+      label: 'Page 수준 에러 격리 (사이드바 유지)',
+      href: '/demo/boundaries?chaos=unexpected&scope=page',
+      badge: 'Local EB',
+    },
+    {
+      step: 'Step 2',
+      principle: '원칙 2',
+      label: 'Segment Layout 에러 (상위 버블링)',
+      href: '/demo/boundaries?chaos=unexpected&scope=layout',
+      badge: 'Bubble Up',
+    },
+    {
+      step: 'Step 3',
+      principle: '원칙 3',
+      label: 'Feed 위젯 단독 장애 (Blast Radius 25%)',
+      href: '/demo/blast-radius?chaos=unexpected&scope=feed&mode=granular',
+      badge: 'Radius 25%',
+    },
+    {
+      step: 'Step 3',
+      principle: '원칙 3',
+      label: 'Suspense > EB 순서 역전 장애 누출',
+      href: '/demo/blast-radius?chaos=unexpected&scope=feed&order=inverted',
+      badge: 'Leakage',
+    },
+    {
+      step: 'Step 4',
+      principle: '원칙 4',
+      label: 'RSC 렌더 예외 마스킹 & Digest 대조',
+      href: '/demo/observability?chaos=unexpected',
+      badge: 'CWE-209',
+    },
+  ];
+
   return (
     <div className="space-y-10 py-4">
       {/* Hero Section */}
@@ -90,6 +149,39 @@ export default function HomePage() {
             </div>
           </Link>
         ))}
+      </div>
+
+      {/* Quick Launchpad 치트시트 */}
+      <div className="p-6 rounded-2xl bg-slate-900/40 border border-slate-800 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">⚡</span>
+            <h2 className="text-sm font-bold text-white">
+              원클릭 카오스 URL 치트시트 (Quick Deep Links)
+            </h2>
+          </div>
+          <span className="text-xs text-slate-400 font-mono">5-Minute Walkthrough</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {quickPresets.map((preset, idx) => (
+            <Link
+              key={idx}
+              href={preset.href}
+              className="p-3 rounded-lg bg-black/40 border border-slate-800 hover:border-sky-500/50 hover:bg-slate-900/50 transition group flex flex-col justify-between gap-2"
+            >
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400 font-mono">{preset.step}</span>
+                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-[10px]">
+                  {preset.badge}
+                </span>
+              </div>
+              <div className="text-xs font-medium text-slate-200 group-hover:text-white transition">
+                {preset.label}
+              </div>
+            </Link>
+          ))}
+        </div>
       </div>
 
       {/* Two-Track 안내 배너 */}
