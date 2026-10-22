@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Next.js 16 원칙 1 (Taxonomy & Result Pattern) 프로토타입</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #a855f7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 24px; line-height: 1.5; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    header { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--card-border); }
+    h1 { font-size: 24px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 10px; }
+    .badge { font-size: 12px; background: rgba(56, 189, 248, 0.15); color: var(--accent); padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .subtext { color: var(--text-muted); margin-top: 6px; font-size: 14px; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; }
+    .tab-btn { background: transparent; border: none; color: var(--text-muted); font-size: 14px; font-weight: 600; padding: 8px 16px; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+    .tab-btn.active { background: var(--card-bg); color: var(--accent); border: 1px solid var(--card-border); }
+    .tab-btn:hover:not(.active) { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+
+    /* Grid Layout */
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+    .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 20px; }
+    .card-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
+
+    /* Buttons */
+    .btn-group { display: flex; flex-direction: column; gap: 10px; }
+    .btn { background: #334155; color: var(--text); border: 1px solid #475569; padding: 10px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; text-align: left; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s; }
+    .btn:hover { background: #475569; border-color: var(--accent); }
+    .btn.active { border-color: var(--accent); background: rgba(56, 189, 248, 0.1); }
+    .btn-status { font-family: monospace; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.3); }
+
+    /* Form */
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+    .form-control { width: 100%; padding: 8px 12px; background: #0f172a; border: 1px solid var(--card-border); border-radius: 6px; color: var(--text); font-size: 13px; }
+    .form-control:focus { outline: none; border-color: var(--accent); }
+    .toggle-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px; }
+
+    /* Code View */
+    pre { background: #090d16; padding: 14px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #cbd5e1; overflow-x: auto; border: 1px solid #1e293b; max-height: 280px; }
+    .code-hl { color: #f43f5e; font-weight: bold; }
+    .code-fn { color: #38bdf8; }
+    .code-str { color: #4ade80; }
+    .code-kw { color: #c084fc; }
+
+    /* Live Output Monitor */
+    .monitor-panel { background: #090d16; border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; margin-top: 20px; }
+    .monitor-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #1e293b; }
+    .status-pill { display: inline-flex; align-items: center; gap: 6px; font-family: monospace; font-size: 12px; padding: 4px 10px; border-radius: 999px; }
+    .status-pill.status-200 { background: rgba(34, 197, 94, 0.15); color: var(--success); border: 1px solid rgba(34, 197, 94, 0.4); }
+    .status-pill.status-404 { background: rgba(245, 158, 11, 0.15); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.4); }
+    .status-pill.status-401 { background: rgba(168, 85, 247, 0.15); color: var(--purple); border: 1px solid rgba(168, 85, 247, 0.4); }
+    .status-pill.status-403 { background: rgba(239, 68, 68, 0.15); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.4); }
+    .status-pill.status-500 { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid var(--danger); }
+
+    .rendered-box { border: 1px dashed var(--card-border); border-radius: 6px; padding: 16px; background: rgba(30, 41, 59, 0.5); min-height: 120px; }
+    .rendered-box.active-not-found { border-color: var(--warning); background: rgba(245, 158, 11, 0.05); }
+    .rendered-box.active-unauthorized { border-color: var(--purple); background: rgba(168, 85, 247, 0.05); }
+    .rendered-box.active-forbidden { border-color: var(--danger); background: rgba(239, 68, 68, 0.05); }
+    .rendered-box.active-error { border-color: #f43f5e; background: rgba(244, 63, 94, 0.05); }
+
+    /* Walkthrough scenario cards */
+    .walkthrough-step { border-left: 3px solid var(--accent); padding-left: 12px; margin-bottom: 12px; }
+    .walkthrough-step h4 { font-size: 13px; color: var(--accent); }
+    .walkthrough-step p { font-size: 12px; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>
+        <span>원칙 1: Expected Error vs Unexpected Exception 시연 프로토타입</span>
+        <span class="badge">Next.js 16 / React 19</span>
+      </h1>
+      <p class="subtext">
+        이 인터랙티브 프로토타입은 <code>/demo/taxonomy</code> 라우트에서 공식 제어 프리미티브(<code>notFound</code>, <code>unauthorized</code>, <code>forbidden</code>),
+        Server Action의 Result 패턴(<code>ok/fail</code>), 그리고 <code>unstable_rethrow</code>의 동작 방식을 직접 검증하기 위해 제작된 독립형 시뮬레이터입니다.
+      </p>
+    </header>
+
+    <!-- Guided Walkthrough Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchScenario('all')">🕹️ 전체 자유 플레이 (Sandbox)</button>
+      <button class="tab-btn" onclick="switchScenario('primitive')">1️⃣ 프리미티브 vs 500 예외 비교</button>
+      <button class="tab-btn" onclick="switchScenario('result')">2️⃣ Server Action Result 패턴</button>
+      <button class="tab-btn" onclick="switchScenario('rethrow')">3️⃣ try/catch 안티패턴 & unstable_rethrow</button>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="grid">
+      <!-- Left Column: Controls -->
+      <div class="card" id="control-card">
+        <div class="card-title">
+          <span>🎮 시뮬레이션 제어기</span>
+          <span style="font-size: 11px; color: var(--text-muted);">클릭 시 즉시 상태 반영</span>
+        </div>
+
+        <div id="scenario-desc" style="font-size: 12px; color: var(--accent); margin-bottom: 12px; display: none;"></div>
+
+        <!-- Section A: Pre-stream Primitives -->
+        <div id="section-primitives" style="margin-bottom: 20px;">
+          <h3 style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase;">
+            A. Pre-stream 제어 프리미티브 (URL 쿼리 트리거)
+          </h3>
+          <div class="btn-group">
+            <button class="btn" onclick="triggerRsc('normal')">
+              <span>🟢 정상 페이지 렌더링 (Default)</span>
+              <span class="btn-status">200 OK</span>
+            </button>
+            <button class="btn" onclick="triggerRsc('not_found')">
+              <span>🟡 <code>notFound()</code> 호출 (데이터 부재)</span>
+              <span class="btn-status" style="color: var(--warning);">404 Not Found</span>
+            </button>
+            <button class="btn" onclick="triggerRsc('unauthorized')">
+              <span>🟣 <code>unauthorized()</code> 호출 (비로그인)</span>
+              <span class="btn-status" style="color: var(--purple);">401 Unauthorized</span>
+            </button>
+            <button class="btn" onclick="triggerRsc('forbidden')">
+              <span>🔴 <code>forbidden()</code> 호출 (권한 결손)</span>
+              <span class="btn-status" style="color: var(--danger);">403 Forbidden</span>
+            </button>
+            <button class="btn" onclick="triggerRsc('unexpected')">
+              <span>💥 <code>throw new Error()</code> (DB 풀 고갈)</span>
+              <span class="btn-status" style="color: #f87171;">500 Internal Error</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Section B: Server Action Form -->
+        <div id="section-action">
+          <h3 style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase;">
+            B. Server Action Result 패턴 & Rethrow 검증
+          </h3>
+          <form onsubmit="handleActionSubmit(event)">
+            <div class="form-group">
+              <label for="member-email">팀원 초대 이메일</label>
+              <input type="text" id="member-email" class="form-control" value="member@company.com" placeholder="test@domain.com">
+            </div>
+            <div class="form-group">
+              <label for="member-role">부여 역할</label>
+              <select id="member-role" class="form-control">
+                <option value="member">일반 멤버 (Member)</option>
+                <option value="admin">관리자 (Admin - 권한 필요)</option>
+                <option value="invalid">비활성 역할 (Invalid Role)</option>
+              </select>
+            </div>
+
+            <div class="toggle-row">
+              <input type="checkbox" id="use-rethrow" checked>
+              <div>
+                <label for="use-rethrow" style="font-size: 12px; font-weight: 600; cursor: pointer;">
+                  <code>unstable_rethrow(err)</code> 적용
+                </label>
+                <div style="font-size: 11px; color: var(--text-muted);">
+                  체크 해제 시 catch 블록에서 Next.js 제어 신호를 삼키는 안티패턴 재현
+                </div>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 8px; margin-top: 14px;">
+              <button type="submit" class="btn" style="flex: 1; justify-content: center; background: var(--accent); color: #000; font-weight: 600;">
+                초대 액션 실행 (Server Action)
+              </button>
+              <button type="button" class="btn" onclick="resetAll()" style="justify-content: center;">
+                초기화
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Right Column: Code & Flow Inspection -->
+      <div class="card">
+        <div class="card-title">
+          <span>📄 실행 코드 & 프레임워크 동작</span>
+          <span id="active-file" style="font-family: monospace; font-size: 11px; color: var(--accent);">page.tsx</span>
+        </div>
+        <pre id="code-display">// 초기 상태</pre>
+
+        <div style="margin-top: 16px;">
+          <h4 style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">💡 아키텍처 핵심 검증 포인트</h4>
+          <div id="key-learning" style="font-size: 12px; color: #cbd5e1; background: #090d16; padding: 10px; border-radius: 6px; border-left: 3px solid var(--accent);">
+            버튼을 클릭하거나 폼을 제출하여 Next.js 16 에러 핸들링 파이프라인의 변화를 관찰하세요.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Execution Monitor -->
+    <div class="monitor-panel">
+      <div class="monitor-header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <strong style="font-size: 14px;">📡 런타임 결과 모니터</strong>
+          <span id="monitor-status" class="status-pill status-200">HTTP 200 OK</span>
+          <span id="monitor-boundary" style="font-size: 12px; color: var(--text-muted);">Error Boundary: 미작동 (정상)</span>
+        </div>
+        <div id="monitor-digest" style="font-family: monospace; font-size: 11px; color: var(--text-muted);">
+          Digest: 없음 (마스킹 불필요)
+        </div>
+      </div>
+
+      <div class="grid" style="margin-bottom: 0;">
+        <div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">활성화된 컨벤션 파일 / 뷰</div>
+          <div id="rendered-view" class="rendered-box">
+            <h3 id="view-title" style="font-size: 15px; margin-bottom: 6px; color: var(--accent);">app/demo/taxonomy/page.tsx</h3>
+            <p id="view-desc" style="font-size: 13px; color: var(--text-muted);">
+              정상 렌더링된 세그먼트 본문입니다. 카오스 파라미터가 없으므로 모든 서버 컴포넌트가 안정적으로 렌더링되었습니다.
+            </p>
+            <div id="action-inline-result" style="margin-top: 12px; display: none;"></div>
+          </div>
+        </div>
+        <div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">클라이언트 상태 & 반환 페이로드 (Result)</div>
+          <pre id="payload-display" style="max-height: 140px;">// 클라이언트 수신 데이터 없음</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // -------------------------------------------------------------
+    // Portable Logic Module: Result & Dispatch Simulator
+    // -------------------------------------------------------------
+    const Result = {
+      ok: (data) => ({ success: true, data }),
+      fail: (error) => ({ success: false, error })
+    };
+
+    let currentState = {
+      trigger: 'normal',
+      httpStatus: 200,
+      activeFile: 'app/demo/taxonomy/page.tsx',
+      renderedComponent: 'DefaultPage',
+      digest: null,
+      errorBoundaryTriggered: false,
+      actionResult: null,
+      explanation: '기본 페이지 정상 렌더링'
+    };
+
+    function triggerRsc(type) {
+      if (type === 'normal') {
+        currentState = {
+          trigger: 'normal',
+          httpStatus: 200,
+          activeFile: 'app/demo/taxonomy/page.tsx',
+          renderedComponent: 'DefaultPage',
+          digest: null,
+          errorBoundaryTriggered: false,
+          actionResult: null,
+          explanation: 'Pre-stream 정상 통과. HTTP 200 OK 응답 및 표준 레이아웃 정상 표시.'
+        };
+      } else if (type === 'not_found') {
+        currentState = {
+          trigger: 'not_found',
+          httpStatus: 404,
+          activeFile: 'app/demo/taxonomy/not-found.tsx',
+          renderedComponent: 'NotFoundBoundary',
+          digest: null,
+          errorBoundaryTriggered: false,
+          actionResult: null,
+          explanation: 'notFound()가 호출되어 HTTP 404 헤더가 즉시 발행되고 not-found.tsx가 렌더링됩니다. 일반 throw가 아니므로 error.tsx 바운더리는 트리거되지 않습니다.'
+        };
+      } else if (type === 'unauthorized') {
+        currentState = {
+          trigger: 'unauthorized',
+          httpStatus: 401,
+          activeFile: 'app/demo/taxonomy/unauthorized.tsx',
+          renderedComponent: 'UnauthorizedBoundary',
+          digest: null,
+          errorBoundaryTriggered: false,
+          actionResult: null,
+          explanation: 'unauthorized()가 호출되어 HTTP 401 헤더와 함께 전용 unauthorized.tsx가 표시됩니다. (experimental.authInterrupts 활성화 필수)'
+        };
+      } else if (type === 'forbidden') {
+        currentState = {
+          trigger: 'forbidden',
+          httpStatus: 403,
+          activeFile: 'app/demo/taxonomy/forbidden.tsx',
+          renderedComponent: 'ForbiddenBoundary',
+          digest: null,
+          errorBoundaryTriggered: false,
+          actionResult: null,
+          explanation: 'forbidden() 호출로 HTTP 403 헤더 발행. 권한이 없는 사용자에게 적절한 차단 안내 화면을 표시합니다.'
+        };
+      } else if (type === 'unexpected') {
+        const dummyDigest = '3892147102';
+        currentState = {
+          trigger: 'unexpected',
+          httpStatus: 500,
+          activeFile: 'app/demo/taxonomy/error.tsx',
+          renderedComponent: 'SegmentErrorBoundary',
+          digest: dummyDigest,
+          errorBoundaryTriggered: true,
+          actionResult: null,
+          explanation: '예상치 못한 시스템 결함(DB 풀 고갈)으로 Error가 throw되었습니다. 상위 error.tsx 바운더리가 포착하며, 프로덕션 환경에서는 보안을 위해 에러 내용이 마스킹되고 digest 해시가 부여됩니다.'
+        };
+      }
+      render();
+    }
+
+    function handleActionSubmit(e) {
+      e.preventDefault();
+      const email = document.getElementById('member-email').value;
+      const role = document.getElementById('member-role').value;
+      const useRethrow = document.getElementById('use-rethrow').checked;
+
+      // 시나리오 1: 이메일 중복 (Expected Business Error -> Result.fail)
+      if (email.includes('duplicate') || email === 'admin@company.com') {
+        const res = Result.fail('ALREADY_REGISTERED: 이미 등록된 사용자입니다.');
+        currentState = {
+          trigger: 'action_business_fail',
+          httpStatus: 200,
+          activeFile: 'app/demo/taxonomy/actions.ts',
+          renderedComponent: 'DefaultPageWithInlineError',
+          digest: null,
+          errorBoundaryTriggered: false,
+          actionResult: res,
+          explanation: '폼 검증 실패는 Expected Error이므로 throw하지 않고 Result.fail()을 반환합니다. HTTP 200 상태가 유지되고 클라이언트에 인라인 에러가 부드럽게 렌더링됩니다.'
+        };
+        render();
+        return;
+      }
+
+      // 시나리오 2: 관리자 권한 요구 시도 (forbidden 프리미티브 호출)
+      if (role === 'admin') {
+        if (useRethrow) {
+          // 권장: unstable_rethrow 적용
+          currentState = {
+            trigger: 'action_rethrow_success',
+            httpStatus: 403,
+            activeFile: 'app/demo/taxonomy/forbidden.tsx',
+            renderedComponent: 'ForbiddenBoundary',
+            digest: null,
+            errorBoundaryTriggered: false,
+            actionResult: null,
+            explanation: 'try/catch 내에서 forbidden()을 호출했으나, catch 블록 상단의 unstable_rethrow(err) 덕분에 프레임워크 신호가 삼켜지지 않고 403 Forbidden 뷰로 정상 인터럽트되었습니다!'
+          };
+        } else {
+          // 안티패턴: catch에서 신호 삼킴
+          const res = Result.fail('ERROR: 알 수 없는 서버 오류가 발생했습니다. (NEXT_FORBIDDEN 삼킴)');
+          currentState = {
+            trigger: 'action_swallowed_antipattern',
+            httpStatus: 200,
+            activeFile: 'app/demo/taxonomy/actions.ts (안티패턴)',
+            renderedComponent: 'DefaultPageWithBrokenError',
+            digest: null,
+            errorBoundaryTriggered: false,
+            actionResult: res,
+            explanation: '❌ 안티패턴 발생! forbidden() 제어 신호를 일반 catch 블록이 Error로 착각하여 삼켰습니다. 403 페이지로 이동하지 못하고 엉뚱한 폼 에러가 표시됩니다.'
+          };
+        }
+        render();
+        return;
+      }
+
+      // 시나리오 3: 정상 등록 성공
+      const res = Result.ok({ id: 'user_' + Math.floor(Math.random() * 8999 + 1000), email, role });
+      currentState = {
+        trigger: 'action_success',
+        httpStatus: 200,
+        activeFile: 'app/demo/taxonomy/actions.ts',
+        renderedComponent: 'DefaultPageWithSuccess',
+        digest: null,
+        errorBoundaryTriggered: false,
+        actionResult: res,
+        explanation: 'Server Action이 Result.ok()를 반환하여 안전하게 클라이언트에 전달되었습니다. 페이지 새로고침 없이 성공 UI가 반영됩니다.'
+      };
+      render();
+    }
+
+    function resetAll() {
+      document.getElementById('member-email').value = 'member@company.com';
+      document.getElementById('member-role').value = 'member';
+      document.getElementById('use-rethrow').checked = true;
+      triggerRsc('normal');
+    }
+
+    // -------------------------------------------------------------
+    // UI Rendering & Code Snippet Mapper
+    // -------------------------------------------------------------
+    function render() {
+      // 1. Status Pill
+      const statusPill = document.getElementById('monitor-status');
+      statusPill.className = 'status-pill status-' + currentState.httpStatus;
+      statusPill.textContent = 'HTTP ' + currentState.httpStatus + (
+        currentState.httpStatus === 200 ? ' OK' :
+        currentState.httpStatus === 404 ? ' NOT FOUND' :
+        currentState.httpStatus === 401 ? ' UNAUTHORIZED' :
+        currentState.httpStatus === 403 ? ' FORBIDDEN' : ' INTERNAL ERROR'
+      );
+
+      // 2. Error Boundary status
+      const ebStatus = document.getElementById('monitor-boundary');
+      if (currentState.errorBoundaryTriggered) {
+        ebStatus.innerHTML = '<span style="color: var(--danger); font-weight: bold;">Error Boundary: 포착됨 (Crash Intercepted)</span>';
+      } else {
+        ebStatus.innerHTML = '<span style="color: var(--success);">Error Boundary: 미작동 (정상 제어 흐름)</span>';
+      }
+
+      // 3. Digest
+      const digestElem = document.getElementById('monitor-digest');
+      if (currentState.digest) {
+        digestElem.innerHTML = '<span style="color: #f87171;">Digest: ' + currentState.digest + ' (원본 보호 마스킹)</span>';
+      } else {
+        digestElem.innerHTML = '<span style="color: var(--text-muted);">Digest: 없음 (마스킹 불필요)</span>';
+      }
+
+      // 4. File and Code Display
+      document.getElementById('active-file').textContent = currentState.activeFile;
+      document.getElementById('key-learning').textContent = currentState.explanation;
+      renderCodeSnippet();
+
+      // 5. Rendered Box UI
+      const renderedBox = document.getElementById('rendered-view');
+      renderedBox.className = 'rendered-box';
+      const titleElem = document.getElementById('view-title');
+      const descElem = document.getElementById('view-desc');
+      const inlineResult = document.getElementById('action-inline-result');
+
+      if (currentState.httpStatus === 404) {
+        renderedBox.classList.add('active-not-found');
+        titleElem.textContent = '📁 app/demo/taxonomy/not-found.tsx';
+        titleElem.style.color = 'var(--warning)';
+        descElem.textContent = '요청하신 리소스가 데이터베이스에 존재하지 않습니다 (404 Not Found).';
+        inlineResult.style.display = 'none';
+      } else if (currentState.httpStatus === 401) {
+        renderedBox.classList.add('active-unauthorized');
+        titleElem.textContent = '🔒 app/demo/taxonomy/unauthorized.tsx';
+        titleElem.style.color = 'var(--purple)';
+        descElem.textContent = '인증 세션이 만료되었거나 비로그인 상태입니다. 로그인 페이지로 이동하세요.';
+        inlineResult.style.display = 'none';
+      } else if (currentState.httpStatus === 403) {
+        renderedBox.classList.add('active-forbidden');
+        titleElem.textContent = '🚫 app/demo/taxonomy/forbidden.tsx';
+        titleElem.style.color = 'var(--danger)';
+        descElem.textContent = '해당 워크스페이스에 대한 관리자 권한이 결손되었습니다 (403 Forbidden).';
+        inlineResult.style.display = 'none';
+      } else if (currentState.httpStatus === 500) {
+        renderedBox.classList.add('active-error');
+        titleElem.textContent = '💥 app/demo/taxonomy/error.tsx (세그먼트 에러 바운더리)';
+        titleElem.style.color = '#f87171';
+        descElem.textContent = '서버 내부 예외 발생. digest=' + currentState.digest + ' 기반으로 관리자 문의 필요.';
+        inlineResult.style.display = 'none';
+      } else {
+        titleElem.textContent = '📄 app/demo/taxonomy/page.tsx';
+        titleElem.style.color = 'var(--accent)';
+        descElem.textContent = '정상 렌더링 세그먼트 화면입니다.';
+
+        if (currentState.actionResult) {
+          inlineResult.style.display = 'block';
+          if (currentState.actionResult.success) {
+            inlineResult.innerHTML = `
+              <div style="background: rgba(34, 197, 94, 0.15); border: 1px solid var(--success); padding: 10px; border-radius: 6px; color: var(--success); font-size: 13px;">
+                ✅ 초대 완료: <strong>${currentState.actionResult.data.email}</strong> (${currentState.actionResult.data.role})
+              </div>
+            `;
+          } else {
+            inlineResult.innerHTML = `
+              <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid var(--danger); padding: 10px; border-radius: 6px; color: #fca5a5; font-size: 13px;">
+                ⚠️ 입력 오류: <strong>${currentState.actionResult.error}</strong>
+              </div>
+            `;
+          }
+        } else {
+          inlineResult.style.display = 'none';
+        }
+      }
+
+      // 6. Payload Display
+      const payloadElem = document.getElementById('payload-display');
+      if (currentState.actionResult) {
+        payloadElem.textContent = JSON.stringify(currentState.actionResult, null, 2);
+      } else {
+        payloadElem.textContent = `// HTTP Status: ${currentState.httpStatus}\n// Active View: ${currentState.activeFile}\n// Digest: ${currentState.digest || 'null'}`;
+      }
+    }
+
+    function renderCodeSnippet() {
+      const codeElem = document.getElementById('code-display');
+      if (currentState.trigger === 'not_found') {
+        codeElem.innerHTML =
+`<span class="code-kw">import</span> { notFound } <span class="code-kw">from</span> <span class="code-str">'next/navigation'</span>;
+
+<span class="code-kw">export default async function</span> <span class="code-fn">TaxonomyPage</span>({ searchParams }) {
+  <span class="code-kw">const</span> params = <span class="code-kw">await</span> searchParams;
+  <span class="code-kw">const</span> item = <span class="code-kw">await</span> fetchItem(params.id);
+
+  <span class="code-hl">if (!item) {</span>
+    <span class="code-hl">notFound(); // Pre-stream 즉시 404 인터럽트 호출</span>
+  <span class="code-hl">}</span>
+
+  <span class="code-kw">return</span> &lt;ItemView item={item} /&gt;;
+}`;
+      } else if (currentState.trigger === 'unauthorized' || currentState.trigger === 'forbidden') {
+        const fnName = currentState.trigger;
+        codeElem.innerHTML =
+`<span class="code-kw">import</span> { ${fnName} } <span class="code-kw">from</span> <span class="code-str">'next/navigation'</span>;
+
+<span class="code-kw">export default async function</span> <span class="code-fn">TaxonomyPage</span>() {
+  <span class="code-kw">const</span> session = <span class="code-kw">await</span> getSession();
+
+  <span class="code-hl">if (!session) {</span>
+    <span class="code-hl">${fnName}(); // experimental.authInterrupts 활성화 필수</span>
+  <span class="code-hl">}</span>
+
+  <span class="code-kw">return</span> &lt;ProtectedContent /&gt;;
+}`;
+      } else if (currentState.trigger === 'unexpected') {
+        codeElem.innerHTML =
+`<span class="code-kw">export default async function</span> <span class="code-fn">TaxonomyPage</span>() {
+  <span class="code-hl">// 시스템 오류 발생 시 catch하여 삼키지 않고 그대로 throw!</span>
+  <span class="code-hl">throw new Error('[DB Crash] Connection pool exhausted');</span>
+
+  <span class="code-kw">return</span> &lt;div&gt;미도달&lt;/div&gt;;
+}`;
+      } else if (currentState.trigger.startsWith('action_')) {
+        const hasRethrow = document.getElementById('use-rethrow').checked;
+        codeElem.innerHTML =
+`<span class="code-kw">'use server'</span>;
+<span class="code-kw">import</span> { unstable_rethrow } <span class="code-kw">from</span> <span class="code-str">'next/navigation'</span>;
+<span class="code-kw">import</span> { forbidden } <span class="code-kw">from</span> <span class="code-str">'next/navigation'</span>;
+<span class="code-kw">import</span> { ok, fail } <span class="code-kw">from</span> <span class="code-str">'@/lib/result'</span>;
+
+<span class="code-kw">export async function</span> <span class="code-fn">inviteMemberAction</span>(formData: FormData) {
+  <span class="code-kw">try</span> {
+    <span class="code-kw">const</span> role = formData.get(<span class="code-str">'role'</span>);
+    <span class="code-kw">if</span> (role === <span class="code-str">'admin'</span>) {
+      <span class="code-fn">forbidden</span>(); <span class="code-str">// Next.js 제어 신호 throw</span>
+    }
+    <span class="code-kw">if</span> (isDuplicateEmail(email)) {
+      <span class="code-kw">return</span> <span class="code-fn">fail</span>(<span class="code-str">'ALREADY_REGISTERED: 중복된 이메일'</span>);
+    }
+    <span class="code-kw">return</span> <span class="code-fn">ok</span>({ success: <span class="code-kw">true</span> });
+  } <span class="code-kw">catch</span> (err) {
+    ${hasRethrow ? '<span class="code-hl">unstable_rethrow(err); // ⭐ 필수: 제어 신호는 다시 throw!</span>' : '<span class="code-hl" style="color: #ef4444;">// ❌ 안티패턴: unstable_rethrow 누락! 신호가 삼켜짐</span>'}
+    <span class="code-kw">return</span> <span class="code-fn">fail</span>((err <span class="code-kw">as</span> Error).message);
+  }
+}`;
+      } else {
+        codeElem.innerHTML =
+`// app/demo/taxonomy/page.tsx
+// evaluateChaos()가 정상 통과된 기본 렌더링 상태
+
+export default async function TaxonomyPage({ searchParams }) {
+  await evaluateChaos(searchParams);
+  return &lt;TaxonomyDemoShell /&gt;;
+}`;
+      }
+    }
+
+    function switchScenario(sc) {
+      const tabs = document.querySelectorAll('.tab-btn');
+      tabs.forEach(t => t.classList.remove('active'));
+      event.target.classList.add('active');
+
+      const desc = document.getElementById('scenario-desc');
+      const secPrim = document.getElementById('section-primitives');
+      const secAction = document.getElementById('section-action');
+
+      if (sc === 'all') {
+        desc.style.display = 'none';
+        secPrim.style.display = 'block';
+        secAction.style.display = 'block';
+      } else if (sc === 'primitive') {
+        desc.style.display = 'block';
+        desc.textContent = '1단계: Pre-stream 시점에 notFound, unauthorized, forbidden이 각각 어떤 HTTP 코드와 전용 화면으로 직행하는지, 그리고 throw new Error(500)와의 차이를 확인하세요.';
+        secPrim.style.display = 'block';
+        secAction.style.display = 'none';
+      } else if (sc === 'result') {
+        desc.style.display = 'block';
+        desc.textContent = '2단계: Server Action에서 폼 입력 오류는 throw하지 않고 Result.fail()을 반환하여 페이지 크래시 없이 인라인 에러를 표시하는 패턴을 확인하세요.';
+        secPrim.style.display = 'none';
+        secAction.style.display = 'block';
+      } else if (sc === 'rethrow') {
+        desc.style.display = 'block';
+        desc.textContent = '3단계: 역할(Admin)을 선택하고 [unstable_rethrow] 체크박스를 켜고 끄면서, catch 블록에서 제어 신호가 삼켜질 때(안티패턴)와 정상 작동할 때의 차이를 체감하세요.';
+        secPrim.style.display = 'none';
+        secAction.style.display = 'block';
+      }
+    }
+
+    // Init
+    triggerRsc('normal');
+  </script>
+</body>
+</html>
