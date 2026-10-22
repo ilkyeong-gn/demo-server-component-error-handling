@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Next.js 16 원칙 3 (GranularErrorBoundary & Blast Radius 통제) 대화형 프로토타입</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #151d2e;
+      --card-border: #23314d;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.12);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.12);
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.12);
+      --purple: #a855f7;
+      --purple-bg: rgba(168, 85, 247, 0.12);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 24px; line-height: 1.5; font-size: 14px; }
+    .container { max-width: 1380px; margin: 0 auto; }
+
+    header { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--card-border); }
+    .title-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    h1 { font-size: 22px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 10px; }
+    .badge { font-size: 11px; font-weight: 600; background: rgba(56, 189, 248, 0.15); color: var(--accent); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .subtext { color: var(--text-muted); margin-top: 6px; font-size: 13px; max-width: 950px; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 6px; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; overflow-x: auto; }
+    .tab-btn { background: transparent; border: none; color: var(--text-muted); font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: all 0.2s; }
+    .tab-btn.active { background: var(--card-bg); color: var(--accent); border: 1px solid var(--card-border); }
+    .tab-btn:hover:not(.active) { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+
+    /* Scenario banner */
+    .scenario-banner { background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; }
+    .scenario-title { font-weight: 700; font-size: 14px; color: var(--accent); display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+    .scenario-desc { font-size: 13px; color: #cbd5e1; }
+    .walkthrough-steps { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+    .step-label { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+    .step-btn { background: var(--card-bg); border: 1px solid var(--accent); color: var(--accent); font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
+    .step-btn:hover { background: var(--accent); color: #0b0f19; }
+
+    /* Layout Grid */
+    .main-grid { display: grid; grid-template-columns: 380px 1fr; gap: 20px; margin-bottom: 24px; }
+    @media (max-width: 1100px) { .main-grid { grid-template-columns: 1fr; } }
+
+    .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 18px; }
+    .card-title { font-size: 15px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; }
+
+    /* Controls Panel */
+    .control-group { margin-bottom: 18px; }
+    .control-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 8px; font-weight: 700; }
+    .btn-col { display: flex; flex-direction: column; gap: 8px; }
+    .btn { padding: 9px 12px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.15s; }
+    .btn-danger { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.35); color: #fca5a5; }
+    .btn-danger:hover { background: rgba(239, 68, 68, 0.22); color: #fff; border-color: var(--danger); }
+    .btn-success { background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.35); color: #6ee7b7; }
+    .btn-success:hover { background: rgba(16, 185, 129, 0.22); color: #fff; }
+    .btn-accent { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.35); color: #7dd3fc; }
+    .btn-accent:hover { background: rgba(56, 189, 248, 0.22); color: #fff; }
+    .btn-outline { background: #0f1623; border: 1px solid var(--card-border); color: #cbd5e1; }
+    .btn-outline:hover { background: #1a2436; color: #fff; }
+
+    /* Toggle switches */
+    .switch-row { display: flex; align-items: center; justify-content: space-between; background: #0f1623; border: 1px solid var(--card-border); padding: 10px 12px; border-radius: 6px; margin-bottom: 8px; }
+    .switch-info { display: flex; flex-direction: column; }
+    .switch-title { font-size: 12px; font-weight: 600; color: #f1f5f9; }
+    .switch-desc { font-size: 11px; color: var(--text-muted); }
+    .toggle { position: relative; display: inline-block; width: 44px; height: 24px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #334155; transition: .3s; border-radius: 24px; }
+    .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+    input:checked + .slider { background-color: var(--accent); }
+    input:checked + .slider:before { transform: translateX(20px); }
+
+    /* Blast Radius Meter */
+    .blast-meter { background: #090d16; border: 1px solid var(--card-border); border-radius: 8px; padding: 14px; margin-bottom: 16px; }
+    .meter-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .meter-title { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .meter-val { font-size: 15px; font-weight: 800; font-family: monospace; }
+    .meter-bar-bg { height: 10px; background: #1e293b; border-radius: 5px; overflow: hidden; position: relative; }
+    .meter-bar-fill { height: 100%; width: 0%; transition: width 0.4s ease, background 0.4s ease; }
+
+    /* Browser Mockup */
+    .browser-frame { background: #0f1623; border: 1px solid var(--card-border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; min-height: 640px; }
+    .browser-bar { background: #151d2e; border-bottom: 1px solid var(--card-border); padding: 8px 12px; display: flex; align-items: center; gap: 10px; }
+    .browser-dots { display: flex; gap: 6px; }
+    .browser-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; }
+    .dot-green { background: #10b981; }
+    .browser-url-bar { flex: 1; background: #090d16; border: 1px solid var(--card-border); border-radius: 4px; padding: 4px 10px; font-family: monospace; font-size: 11px; color: #94a3b8; display: flex; align-items: center; justify-content: space-between; }
+    .url-tag { background: #1e293b; color: var(--accent); padding: 1px 6px; border-radius: 3px; font-size: 10px; }
+
+    /* App Shell Inside Browser */
+    .app-root { display: flex; flex-direction: column; flex: 1; background: #0b0f19; }
+    .app-gnb { background: #151d2e; border-bottom: 1px solid var(--card-border); padding: 10px 18px; display: flex; justify-content: space-between; align-items: center; }
+    .gnb-brand { font-size: 13px; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 8px; }
+    .gnb-status { display: flex; gap: 8px; align-items: center; }
+
+    /* Dashboard Container */
+    .dashboard-body { padding: 18px; flex: 1; display: flex; flex-direction: column; gap: 16px; }
+    .dashboard-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+    .dash-title { font-size: 16px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 8px; }
+    .dash-badge { font-size: 11px; padding: 2px 7px; border-radius: 4px; font-weight: 600; }
+
+    /* Widget Grid */
+    .widget-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; flex: 1; }
+    @media (max-width: 800px) { .widget-grid { grid-template-columns: 1fr; } }
+
+    .widget-card { background: #151d2e; border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; transition: all 0.25s; min-height: 220px; position: relative; }
+    .widget-card.healthy { border-color: rgba(16, 185, 129, 0.4); }
+    .widget-card.error-state { border-color: rgba(239, 68, 68, 0.6); background: rgba(239, 68, 68, 0.04); }
+    .widget-card.loading { border-color: rgba(56, 189, 248, 0.4); }
+
+    .widget-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+    .widget-title { font-size: 13px; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 6px; }
+    .widget-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; }
+    .tag-rsc { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .tag-client { background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3); }
+
+    /* Widget Content Styles */
+    .stat-row { display: flex; gap: 10px; margin-top: 8px; }
+    .stat-box { flex: 1; background: #0f1623; border: 1px solid var(--card-border); border-radius: 6px; padding: 10px; }
+    .stat-box-title { font-size: 11px; color: var(--text-muted); }
+    .stat-box-num { font-size: 18px; font-weight: 800; color: #f8fafc; margin-top: 2px; }
+
+    .profile-box { display: flex; align-items: center; gap: 12px; background: #0f1623; border: 1px solid var(--card-border); border-radius: 6px; padding: 12px; }
+    .avatar { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, #38bdf8, #818cf8); display: flex; align-items: center; justify-content: center; font-weight: 700; color: #0b0f19; font-size: 16px; }
+    .profile-details { flex: 1; }
+    .profile-name { font-weight: 700; font-size: 13px; color: #f1f5f9; }
+    .profile-role { font-size: 11px; color: var(--text-muted); }
+
+    .feed-list { display: flex; flex-direction: column; gap: 8px; }
+    .feed-item { background: #0f1623; border: 1px solid var(--card-border); border-radius: 6px; padding: 8px 10px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .feed-time { font-size: 10px; color: #64748b; font-family: monospace; }
+
+    /* Local Granular Error Fallback UI */
+    .local-fallback { background: rgba(239, 68, 68, 0.08); border: 1px dashed rgba(239, 68, 68, 0.5); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; height: 100%; flex: 1; }
+    .local-fallback-icon { font-size: 24px; margin-bottom: 6px; }
+    .local-fallback-title { font-size: 13px; font-weight: 700; color: #fca5a5; margin-bottom: 4px; }
+    .local-fallback-desc { font-size: 11px; color: #cbd5e1; margin-bottom: 10px; max-width: 260px; }
+    .digest-pill { font-family: monospace; font-size: 10px; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171; padding: 2px 6px; border-radius: 3px; margin-bottom: 10px; display: inline-block; }
+    .btn-retry-widget { background: var(--accent); color: #0b0f19; border: none; font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 5px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all 0.15s; }
+    .btn-retry-widget:hover { background: var(--accent-hover); }
+
+    /* Segment Fatal Crash UI (When No Granular Boundary) */
+    .segment-crash-view { background: #1c1117; border: 2px solid #ef4444; border-radius: 8px; padding: 40px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; flex: 1; }
+    .segment-crash-icon { font-size: 42px; margin-bottom: 12px; }
+    .segment-crash-title { font-size: 18px; font-weight: 800; color: #f87171; margin-bottom: 8px; }
+    .segment-crash-desc { font-size: 13px; color: #e2e8f0; max-width: 520px; margin-bottom: 16px; line-height: 1.6; }
+    .segment-crash-box { background: rgba(0,0,0,0.4); border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; padding: 12px; max-width: 480px; width: 100%; margin-bottom: 20px; text-align: left; font-family: monospace; font-size: 11px; color: #fca5a5; }
+
+    /* Skeleton Loading Placeholder */
+    .skeleton-box { height: 100%; min-height: 140px; background: linear-gradient(90deg, #151d2e 25%, #1e293b 50%, #151d2e 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 6px; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+    /* Status Pills */
+    .status-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; }
+    .status-badge.green { background: var(--success-bg); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .status-badge.red { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); }
+    .status-badge.yellow { background: var(--warning-bg); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .status-badge.purple { background: var(--purple-bg); color: var(--purple); border: 1px solid rgba(168, 85, 247, 0.3); }
+
+    /* Code Snippet Box */
+    .code-box { background: #090d16; border: 1px solid var(--card-border); border-radius: 6px; padding: 12px 14px; font-family: 'Fira Code', monospace; font-size: 11.5px; line-height: 1.6; color: #cbd5e1; overflow-x: auto; }
+    .kw { color: #f472b6; }
+    .fn { color: #38bdf8; }
+    .str { color: #a7f3d0; }
+    .comment { color: #64748b; font-style: italic; }
+
+    /* Tree View */
+    .tree-box { background: #090d16; border: 1px solid var(--card-border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 11.5px; }
+    .tree-node { padding: 4px 6px; margin: 2px 0; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
+    .tree-node.active-eb { background: rgba(56, 189, 248, 0.15); border-left: 3px solid var(--accent); color: #7dd3fc; }
+    .tree-node.crashed { background: rgba(239, 68, 68, 0.18); border-left: 3px solid var(--danger); color: #fca5a5; }
+    .tree-node.healthy { background: rgba(16, 185, 129, 0.08); border-left: 3px solid var(--success); color: #6ee7b7; }
+    .tree-node.unmounted { opacity: 0.35; text-decoration: line-through; }
+
+    /* Event Log List */
+    .log-box { background: #090d16; border: 1px solid var(--card-border); border-radius: 6px; padding: 10px 14px; max-height: 130px; overflow-y: auto; font-family: monospace; font-size: 11px; }
+    .log-entry { margin-bottom: 4px; color: #94a3b8; }
+    .log-entry span.time { color: #64748b; }
+    .log-entry span.event { color: var(--accent); font-weight: 600; }
+    .log-entry span.warn { color: var(--warning); }
+    .log-entry span.err { color: var(--danger); }
+    .log-entry span.succ { color: var(--success); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="title-row">
+        <h1>
+          Next.js 16 원칙 3: GranularErrorBoundary & Blast Radius 통제 시뮬레이터
+          <span class="badge">Prototype v1.0</span>
+        </h1>
+        <button class="step-btn" onclick="resetAll()">전체 상태 초기화</button>
+      </div>
+      <p class="subtext">
+        <strong>목적:</strong> <code>/demo/blast-radius</code> 대시보드에서 보조 위젯(<code>FeedWidget</code>)의 장애 발생 시, 
+        <code>&lt;GranularErrorBoundary&gt;</code>(Client) + <code>&lt;Suspense&gt;</code> 페어링을 통해 
+        핵심 위젯(<code>Metrics</code>, <code>Profile</code>)을 온전히 보존하는 폭발 반경(Blast Radius) 통제 메커니즘과 독립 복구 패턴을 검증합니다.
+      </p>
+    </header>
+
+    <!-- Tabbed Guided Scenarios -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchScenario(1)">시나리오 1: Granular 격리 성공 (폭발 반경 통제)</button>
+      <button class="tab-btn" onclick="switchScenario(2)">시나리오 2: Granular 미적용 시 전체 대시보드 파괴 (대비)</button>
+      <button class="tab-btn" onclick="switchScenario(3)">시나리오 3: 올바른 배치 순서 (EB 래핑 Suspense)</button>
+      <button class="tab-btn" onclick="switchScenario(4)">시나리오 4: 위젯 독립 복구 (startTransition + refresh)</button>
+    </div>
+
+    <!-- Active Scenario Banner -->
+    <div class="scenario-banner" id="scenario-banner">
+      <div class="scenario-title">
+        <span id="sc-title">시나리오 1: Granular 격리 성공 (폭발 반경 통제)</span>
+        <span class="status-badge green" id="sc-target">Granular EB: ON · Scope: FeedWidget</span>
+      </div>
+      <div class="scenario-desc" id="sc-desc">
+        <code>FeedWidget</code>에만 시스템 장애가 발생했을 때, <code>&lt;GranularErrorBoundary&gt;</code>가 에러를 국소 차단하여 Metrics와 Profile 위젯은 100% 정상 작동을 유지합니다.
+      </div>
+      <div class="walkthrough-steps" id="sc-steps">
+        <span class="step-label">가이드 단계:</span>
+        <button class="step-btn" onclick="triggerFeedCrash()">1. FeedWidget 에러 발생 (?chaos=unexpected&scope=feed)</button>
+        <button class="step-btn" onclick="healServerAndRecover()">2. Feed 위젯 독립 복구 시도</button>
+      </div>
+    </div>
+
+    <!-- Main Grid: Controls & Diagnostics on Left, Render Preview on Right -->
+    <div class="main-grid">
+      <!-- Left Column: Controls & Tree Monitor -->
+      <div style="display: flex; flex-direction: column; gap: 18px;">
+        
+        <!-- Blast Radius Real-Time Meter -->
+        <div class="blast-meter">
+          <div class="meter-header">
+            <span class="meter-title">장애 폭발 반경 (Blast Radius)</span>
+            <span class="meter-val" id="blast-val" style="color: #10b981;">0% (정상)</span>
+          </div>
+          <div class="meter-bar-bg">
+            <div class="meter-bar-fill" id="blast-fill" style="width: 0%; background: #10b981;"></div>
+          </div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px; display: flex; justify-content: space-between;">
+            <span>안전 (0%)</span>
+            <span>국소 격리 (25%)</span>
+            <span>전체 붕괴 (100%)</span>
+          </div>
+        </div>
+
+        <!-- Interactive Controls Card -->
+        <div class="card">
+          <div class="card-title">
+            <span>아키텍처 스위치 및 카오스 제어</span>
+            <span class="status-badge green" id="server-status-pill">서버: 정상</span>
+          </div>
+
+          <!-- Boundary Configuration Switches -->
+          <div class="control-group">
+            <div class="control-label">바운더리 격리 설정</div>
+            <div class="switch-row">
+              <div class="switch-info">
+                <span class="switch-title">GranularErrorBoundary 활성화</span>
+                <span class="switch-desc">개별 위젯 단위 에러 바운더리 격리</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="toggle-granular" checked onchange="handleGranularToggle(this.checked)">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="switch-row">
+              <div class="switch-info">
+                <span class="switch-title">올바른 배치 순서 (EB &gt; Suspense)</span>
+                <span class="switch-desc">반대 배치 시 스트리밍 에러 상위 누출</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="toggle-ordering" checked onchange="handleOrderingToggle(this.checked)">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Crash Triggers -->
+          <div class="control-group">
+            <div class="control-label">카오스 주입 트리거 (?chaos=unexpected)</div>
+            <div class="btn-col">
+              <button class="btn btn-danger" onclick="triggerFeedCrash()">
+                <span>💥 FeedWidget 크래시</span>
+                <code>scope=feed</code>
+              </button>
+              <button class="btn btn-danger" onclick="triggerMetricsCrash()">
+                <span>💥 MetricsWidget 크래시</span>
+                <code>scope=metrics</code>
+              </button>
+              <button class="btn btn-success" onclick="restoreServerHealth()">
+                <span>💚 서버 장애 해소 (정상화)</span>
+                <code>health=ok</code>
+              </button>
+            </div>
+          </div>
+
+          <!-- Code Snippet of Current Config -->
+          <div class="control-group" style="margin-bottom: 0;">
+            <div class="control-label">현재 컴포넌트 조립 패턴</div>
+            <div class="code-box" id="pattern-code">
+<span class="comment">// ✅ 표준 GranularErrorBoundary + Suspense 페어링</span>
+&lt;<span class="fn">GranularErrorBoundary</span> <span class="kw">name</span>=<span class="str">"FeedWidget"</span> <span class="kw">fallback</span>={...}&gt;
+  &lt;<span class="fn">Suspense</span> <span class="kw">fallback</span>={&lt;<span class="fn">WidgetSkeleton</span> /&gt;}&gt;
+    &lt;<span class="fn">FeedWidget</span> /&gt; <span class="comment">// 비동기 RSC</span>
+  &lt;/<span class="fn">Suspense</span>&gt;
+&lt;/<span class="fn">GranularErrorBoundary</span>&gt;</div>
+          </div>
+        </div>
+
+        <!-- React Component Tree Monitor -->
+        <div class="card">
+          <div class="card-title">
+            <span>컴포넌트 렌더 트리 상태</span>
+            <span class="status-badge purple" id="active-eb-pill">Active EB: None</span>
+          </div>
+          <div class="tree-box" id="tree-display">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Event Log Card -->
+        <div class="card">
+          <div class="card-title">
+            <span>라이프사이클 & 관측성 로그</span>
+            <button class="step-btn" style="padding: 2px 8px; font-size: 10px;" onclick="clearLogs()">비우기</button>
+          </div>
+          <div class="log-box" id="log-box">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: Interactive Browser Simulator -->
+      <div class="browser-frame">
+        <!-- Mock Browser Bar -->
+        <div class="browser-bar">
+          <div class="browser-dots">
+            <div class="browser-dot dot-red"></div>
+            <div class="browser-dot dot-yellow"></div>
+            <div class="browser-dot dot-green"></div>
+          </div>
+          <div class="browser-url-bar">
+            <span id="browser-url">http://localhost:3000/demo/blast-radius</span>
+            <span class="url-tag" id="rsc-payload-tag">RSC Streamed</span>
+          </div>
+          <button class="step-btn" style="padding: 3px 8px; font-size: 11px;" onclick="simulateFullPageRefresh()">새로고침</button>
+        </div>
+
+        <!-- Web Application Inside Browser -->
+        <div class="app-root" id="app-root">
+          <!-- GNB -->
+          <div class="app-gnb">
+            <div class="gnb-brand">
+              <span>🛡️ Next.js 16 Error Lab</span>
+              <span style="color: var(--text-muted); font-size: 11px;">/demo/blast-radius</span>
+            </div>
+            <div class="gnb-status">
+              <span class="status-badge green">GNB: OK</span>
+              <span class="status-badge purple">React 19 RSC</span>
+            </div>
+          </div>
+
+          <!-- Main Dashboard Content Container -->
+          <div class="dashboard-body" id="dashboard-body">
+            
+            <!-- Dashboard Title Row -->
+            <div class="dashboard-header">
+              <div>
+                <div class="dash-title">
+                  <span>통합 시스템 대시보드</span>
+                  <span class="dash-badge" id="boundary-mode-badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">Granular Mode ON</span>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">
+                  비동기 서버 컴포넌트(RSC) 위젯들의 격리 및 스트리밍 상태 시연
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="step-btn" onclick="simulateWidgetRefresh()">동시 데이터 갱신</button>
+              </div>
+            </div>
+
+            <!-- Dashboard Widgets Grid (4 Widgets) -->
+            <div class="widget-grid" id="widget-grid">
+              
+              <!-- Widget 1: ProfileWidget (RSC - Normal) -->
+              <div class="widget-card healthy" id="widget-profile">
+                <div class="widget-header">
+                  <div class="widget-title">
+                    <span>👤 사용자 프로필</span>
+                    <span class="widget-tag tag-rsc">RSC</span>
+                  </div>
+                  <span class="status-badge green" id="profile-badge">정상</span>
+                </div>
+                <div class="profile-box">
+                  <div class="avatar">AD</div>
+                  <div class="profile-details">
+                    <div class="profile-name">Alex Dev (Lead Architect)</div>
+                    <div class="profile-role">Platform Engineering · Tier-1</div>
+                  </div>
+                </div>
+                <div style="margin-top: 12px; font-size: 11px; color: var(--text-muted); line-height: 1.5;">
+                  인증 세션 기반 서버 컴포넌트. Feed 장애 여부와 무관하게 완전히 동작하며 마운트 상태를 유지합니다.
+                </div>
+              </div>
+
+              <!-- Widget 2: MetricsWidget (RSC - Normal) -->
+              <div class="widget-card healthy" id="widget-metrics">
+                <div class="widget-header">
+                  <div class="widget-title">
+                    <span>📊 실시간 서비스 지표</span>
+                    <span class="widget-tag tag-rsc">RSC</span>
+                  </div>
+                  <span class="status-badge green" id="metrics-badge">정상</span>
+                </div>
+                <div class="stat-row">
+                  <div class="stat-box">
+                    <div class="stat-box-title">일일 활성 사용자</div>
+                    <div class="stat-box-num" id="stat-dau">42,890</div>
+                  </div>
+                  <div class="stat-box">
+                    <div class="stat-box-title">API 평균 지연시간</div>
+                    <div class="stat-box-num" id="stat-latency">18ms</div>
+                  </div>
+                </div>
+                <div style="margin-top: 12px; font-size: 11px; color: var(--text-muted);">
+                  DB 통계 집계 서버 컴포넌트. 독립적인 정상 스트리밍을 수행합니다.
+                </div>
+              </div>
+
+              <!-- Widget 3: FeedWidget (RSC - Volatile / Chaos Target) -->
+              <div class="widget-card healthy" id="widget-feed-container">
+                <div class="widget-header">
+                  <div class="widget-title">
+                    <span>📡 외부 서드파티 피드</span>
+                    <span class="widget-tag tag-rsc">Async RSC</span>
+                  </div>
+                  <span class="status-badge green" id="feed-badge">정상 (Connected)</span>
+                </div>
+                <div id="feed-content-area" style="flex: 1; display: flex; flex-direction: column;">
+                  <div class="feed-list">
+                    <div class="feed-item">
+                      <span>🚀 Deploy v2.4.0 completed successfully</span>
+                      <span class="feed-time">14:02:11</span>
+                    </div>
+                    <div class="feed-item">
+                      <span>🔔 Webhook ping from payment gateway received</span>
+                      <span class="feed-time">14:00:54</span>
+                    </div>
+                    <div class="feed-item">
+                      <span>⚡ Auto-scaling node added to cluster ap-northeast-2</span>
+                      <span class="feed-time">13:58:20</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Widget 4: RecommendationsWidget (RSC - Normal) -->
+              <div class="widget-card healthy" id="widget-recommendations">
+                <div class="widget-header">
+                  <div class="widget-title">
+                    <span>💡 권장 최적화 가이드</span>
+                    <span class="widget-tag tag-rsc">RSC</span>
+                  </div>
+                  <span class="status-badge green">정상</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px; flex: 1;">
+                  <div style="background: #0f1623; border: 1px solid var(--card-border); padding: 8px 10px; border-radius: 6px; font-size: 12px;">
+                    <div style="font-weight: 600; color: #38bdf8;">Edge Caching 활성화 권장</div>
+                    <div style="color: var(--text-muted); font-size: 11px; margin-top: 2px;">정적 에셋 응답 속도가 35% 향상될 수 있습니다.</div>
+                  </div>
+                  <div style="background: #0f1623; border: 1px solid var(--card-border); padding: 8px 10px; border-radius: 6px; font-size: 12px;">
+                    <div style="font-weight: 600; color: #a855f7;">RSC Chunking 모니터링</div>
+                    <div style="color: var(--text-muted); font-size: 11px; margin-top: 2px;">스트리밍 청크 사이즈가 최적치 범위(12KB) 내에 있습니다.</div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State Model
+    const state = {
+      scenario: 1,
+      granularEnabled: true,
+      orderingCorrect: true, // true: EB > Suspense, false: Suspense > EB
+      serverHealthy: true,
+      feedError: false,
+      metricsError: false,
+      lastDigest: null,
+      feedRetrying: false,
+      blastRadiusPercent: 0
+    };
+
+    function log(message, type = 'event') {
+      const box = document.getElementById('log-box');
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      let tagClass = 'event';
+      if (type === 'err') tagClass = 'err';
+      if (type === 'warn') tagClass = 'warn';
+      if (type === 'succ') tagClass = 'succ';
+      entry.innerHTML = `<span class="time">[${timeStr}]</span> <span class="${tagClass}">${message}</span>`;
+      box.insertBefore(entry, box.firstChild);
+    }
+
+    function clearLogs() {
+      document.getElementById('log-box').innerHTML = '';
+      log('로그 창이 초기화되었습니다.', 'warn');
+    }
+
+    function updateBlastRadius() {
+      let percent = 0;
+      let label = '0% (정상)';
+      let color = '#10b981';
+
+      if (!state.granularEnabled && (state.feedError || state.metricsError)) {
+        // Without Granular EB, any widget error crashes the whole dashboard page (100%)
+        percent = 100;
+        label = '100% (전체 대시보드 파괴 😱)';
+        color = '#ef4444';
+      } else if (!state.orderingCorrect && state.feedError) {
+        // Wrong ordering: Suspense > EB leaks to page error.tsx
+        percent = 100;
+        label = '100% (순서 역전으로 상위 누출 😱)';
+        color = '#ef4444';
+      } else {
+        let failedCount = (state.feedError ? 1 : 0) + (state.metricsError ? 1 : 0);
+        if (failedCount === 1) {
+          percent = 25;
+          label = '25% (해당 위젯 국소 격리 🛡️)';
+          color = '#38bdf8';
+        } else if (failedCount >= 2) {
+          percent = 50;
+          label = '50% (개별 위젯 국소 격리)';
+          color = '#f59e0b';
+        } else {
+          percent = 0;
+          label = '0% (정상)';
+          color = '#10b981';
+        }
+      }
+
+      state.blastRadiusPercent = percent;
+      document.getElementById('blast-val').innerText = label;
+      document.getElementById('blast-val').style.color = color;
+      const fill = document.getElementById('blast-fill');
+      fill.style.width = percent + '%';
+      fill.style.background = color;
+    }
+
+    function renderTree() {
+      const tree = document.getElementById('tree-display');
+      const isSegmentCrashed = (!state.granularEnabled || !state.orderingCorrect) && state.feedError;
+
+      let html = '';
+      html += `<div class="tree-node ${isSegmentCrashed ? 'crashed' : 'healthy'}">
+        <span>📁 Root Layout (app/layout.tsx)</span>
+        <span>${isSegmentCrashed ? 'GNB 유지' : 'Active'}</span>
+      </div>`;
+
+      if (isSegmentCrashed) {
+        html += `<div class="tree-node crashed" style="margin-left: 14px;">
+          <span>🚨 Segment error.tsx (app/demo/blast-radius/error.tsx)</span>
+          <span>💥 포착됨 (Blast Radius 100%)</span>
+        </div>`;
+        html += `<div class="tree-node unmounted" style="margin-left: 28px;">
+          <span>📄 Dashboard Page Shell (page.tsx) [언마운트됨]</span>
+          <span>Unmounted</span>
+        </div>`;
+      } else {
+        html += `<div class="tree-node healthy" style="margin-left: 14px;">
+          <span>📄 Dashboard Page Shell (page.tsx)</span>
+          <span>Mounted</span>
+        </div>`;
+
+        // Profile Widget
+        html += `<div class="tree-node healthy" style="margin-left: 28px;">
+          <span>├── 👤 ProfileWidget (Async RSC)</span>
+          <span>✅ 정상</span>
+        </div>`;
+
+        // Metrics Widget
+        html += `<div class="tree-node ${state.metricsError ? 'crashed' : 'healthy'}" style="margin-left: 28px;">
+          <span>├── 📊 MetricsWidget (Async RSC)</span>
+          <span>${state.metricsError ? '💥 로컬 Fallback' : '✅ 정상'}</span>
+        </div>`;
+
+        // Feed Widget Branch
+        if (state.granularEnabled) {
+          if (state.orderingCorrect) {
+            html += `<div class="tree-node active-eb" style="margin-left: 28px;">
+              <span>├── 🛡️ &lt;GranularErrorBoundary name="FeedWidget"&gt;</span>
+              <span>${state.feedError ? '🔥 Catch & Isolate' : 'Listening'}</span>
+            </div>`;
+            html += `<div class="tree-node healthy" style="margin-left: 42px;">
+              <span>    ├── ⏳ &lt;Suspense fallback=&lt;WidgetSkeleton /&gt;&gt;</span>
+              <span>Ready</span>
+            </div>`;
+            html += `<div class="tree-node ${state.feedError ? 'crashed' : 'healthy'}" style="margin-left: 56px;">
+              <span>        └── 📡 &lt;FeedWidget /&gt; (RSC)</span>
+              <span>${state.feedError ? '💥 Error (Digest: ' + state.lastDigest + ')' : '✅ 정상'}</span>
+            </div>`;
+          } else {
+            // Wrong ordering
+            html += `<div class="tree-node crashed" style="margin-left: 28px;">
+              <span>├── ⏳ &lt;Suspense fallback=&lt;WidgetSkeleton /&gt;&gt; [잘못된 순서!]</span>
+              <span>Bypassed!</span>
+            </div>`;
+            html += `<div class="tree-node active-eb" style="margin-left: 42px;">
+              <span>    └── 🛡️ &lt;GranularErrorBoundary&gt; (안쪽에 배치됨)</span>
+              <span>Uncaught</span>
+            </div>`;
+          }
+        } else {
+          html += `<div class="tree-node crashed" style="margin-left: 28px;">
+            <span>├── ⚠️ &lt;Suspense&gt; (GranularErrorBoundary 없음!)</span>
+            <span>No Barrier</span>
+          </div>`;
+          html += `<div class="tree-node ${state.feedError ? 'crashed' : 'healthy'}" style="margin-left: 42px;">
+            <span>    └── 📡 &lt;FeedWidget /&gt;</span>
+            <span>${state.feedError ? '💥 누출 발생' : '✅ 정상'}</span>
+          </div>`;
+        }
+
+        // Recommendations
+        html += `<div class="tree-node healthy" style="margin-left: 28px;">
+          <span>└── 💡 RecommendationsWidget (Async RSC)</span>
+          <span>✅ 정상</span>
+        </div>`;
+      }
+
+      tree.innerHTML = html;
+
+      // Active EB pill
+      const pill = document.getElementById('active-eb-pill');
+      if (isSegmentCrashed) {
+        pill.innerText = 'Active: Segment error.tsx';
+        pill.className = 'status-badge red';
+      } else if (state.feedError && state.granularEnabled && state.orderingCorrect) {
+        pill.innerText = 'Active: <GranularEB (Feed)>';
+        pill.className = 'status-badge purple';
+      } else {
+        pill.innerText = 'Active: None (Healthy)';
+        pill.className = 'status-badge green';
+      }
+    }
+
+    function renderUI() {
+      updateBlastRadius();
+      renderTree();
+
+      const body = document.getElementById('dashboard-body');
+      const isSegmentCrashed = (!state.granularEnabled || !state.orderingCorrect) && state.feedError;
+
+      if (isSegmentCrashed) {
+        // Entire page crashes into segment error.tsx!
+        document.getElementById('browser-url').innerText = 'http://localhost:3000/demo/blast-radius?chaos=unexpected&scope=feed';
+        body.innerHTML = `
+          <div class="segment-crash-view">
+            <div class="segment-crash-icon">💥</div>
+            <div class="segment-crash-title">Segment Level Error: 대시보드 렌더링 붕괴</div>
+            <div class="segment-crash-desc">
+              <code>&lt;GranularErrorBoundary&gt;</code>가 없거나 순서가 잘못되어 
+              보조 위젯(Feed) 하나의 에러가 상위 세그먼트 <code>app/demo/blast-radius/error.tsx</code>로 버블링되었습니다.<br>
+              <strong>결과: 정상 동작하던 Metrics, Profile, Recommendations 위젯까지 모두 언마운트되어 서비스가 마비되었습니다.</strong>
+            </div>
+            <div class="segment-crash-box">
+              <div><strong>Active Boundary:</strong> demo/blast-radius/error.tsx (Segment Shell)</div>
+              <div><strong>Error:</strong> [FeedServiceUnavailable] Failed to fetch upstream RSS stream</div>
+              <div><strong>Digest:</strong> ${state.lastDigest || '8a9b2c3d'}</div>
+              <div><strong>Impact:</strong> Blast Radius 100% (4개 위젯 중 4개 소멸)</div>
+            </div>
+            <div style="display: flex; gap: 12px;">
+              <button class="step-btn" style="background: #334155; color: #cbd5e1;" onclick="handleAntipatternReset()">단순 reset() 시도 (캐시 루프)</button>
+              <button class="btn-retry-widget" onclick="healServerAndRecover()">✅ startTransition 복구 (서버 갱신)</button>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      // Normal Dashboard or Granular Isolated state
+      document.getElementById('browser-url').innerText = state.feedError 
+        ? 'http://localhost:3000/demo/blast-radius?chaos=unexpected&scope=feed'
+        : 'http://localhost:3000/demo/blast-radius';
+
+      // Ensure base dashboard layout is in place
+      body.innerHTML = `
+        <div class="dashboard-header">
+          <div>
+            <div class="dash-title">
+              <span>통합 시스템 대시보드</span>
+              <span class="dash-badge" id="boundary-mode-badge" style="${state.granularEnabled ? 'background: rgba(56, 189, 248, 0.15); color: #38bdf8;' : 'background: rgba(239, 68, 68, 0.15); color: #fca5a5;'}">
+                ${state.granularEnabled ? 'Granular Mode ON (격리 보호)' : 'Granular Mode OFF (위험)'}
+              </span>
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">
+              비동기 서버 컴포넌트(RSC) 위젯들의 격리 및 스트리밍 상태 시연
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="step-btn" onclick="simulateWidgetRefresh()">동시 데이터 갱신</button>
+          </div>
+        </div>
+
+        <div class="widget-grid" id="widget-grid">
+          <!-- Profile Widget -->
+          <div class="widget-card healthy" id="widget-profile">
+            <div class="widget-header">
+              <div class="widget-title">
+                <span>👤 사용자 프로필</span>
+                <span class="widget-tag tag-rsc">RSC</span>
+              </div>
+              <span class="status-badge green">정상</span>
+            </div>
+            <div class="profile-box">
+              <div class="avatar">AD</div>
+              <div class="profile-details">
+                <div class="profile-name">Alex Dev (Lead Architect)</div>
+                <div class="profile-role">Platform Engineering · Tier-1</div>
+              </div>
+            </div>
+            <div style="margin-top: 12px; font-size: 11px; color: var(--text-muted); line-height: 1.5;">
+              인증 세션 기반 서버 컴포넌트. Feed 장애 여부와 무관하게 완전히 동작하며 마운트 상태를 유지합니다.
+            </div>
+          </div>
+
+          <!-- Metrics Widget -->
+          <div class="widget-card healthy" id="widget-metrics">
+            <div class="widget-header">
+              <div class="widget-title">
+                <span>📊 실시간 서비스 지표</span>
+                <span class="widget-tag tag-rsc">RSC</span>
+              </div>
+              <span class="status-badge green">정상</span>
+            </div>
+            <div class="stat-row">
+              <div class="stat-box">
+                <div class="stat-box-title">일일 활성 사용자</div>
+                <div class="stat-box-num">42,890</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-box-title">API 평균 지연시간</div>
+                <div class="stat-box-num">18ms</div>
+              </div>
+            </div>
+            <div style="margin-top: 12px; font-size: 11px; color: var(--text-muted);">
+              DB 통계 집계 서버 컴포넌트. 독립적인 정상 스트리밍을 수행합니다.
+            </div>
+          </div>
+
+          <!-- Feed Widget Container -->
+          <div class="widget-card ${state.feedError ? 'error-state' : 'healthy'}" id="widget-feed-container">
+            <div class="widget-header">
+              <div class="widget-title">
+                <span>📡 외부 서드파티 피드</span>
+                <span class="widget-tag tag-rsc">Async RSC</span>
+              </div>
+              <span class="status-badge ${state.feedError ? 'red' : 'green'}">
+                ${state.feedError ? '장애 격리됨 (Fallback)' : '정상 (Connected)'}
+              </span>
+            </div>
+            <div id="feed-content-area" style="flex: 1; display: flex; flex-direction: column;">
+              ${renderFeedWidgetContent()}
+            </div>
+          </div>
+
+          <!-- Recommendations Widget -->
+          <div class="widget-card healthy" id="widget-recommendations">
+            <div class="widget-header">
+              <div class="widget-title">
+                <span>💡 권장 최적화 가이드</span>
+                <span class="widget-tag tag-rsc">RSC</span>
+              </div>
+              <span class="status-badge green">정상</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px; flex: 1;">
+              <div style="background: #0f1623; border: 1px solid var(--card-border); padding: 8px 10px; border-radius: 6px; font-size: 12px;">
+                <div style="font-weight: 600; color: #38bdf8;">Edge Caching 활성화 권장</div>
+                <div style="color: var(--text-muted); font-size: 11px; margin-top: 2px;">정적 에셋 응답 속도가 35% 향상될 수 있습니다.</div>
+              </div>
+              <div style="background: #0f1623; border: 1px solid var(--card-border); padding: 8px 10px; border-radius: 6px; font-size: 12px;">
+                <div style="font-weight: 600; color: #a855f7;">RSC Chunking 모니터링</div>
+                <div style="color: var(--text-muted); font-size: 11px; margin-top: 2px;">스트리밍 청크 사이즈가 최적치 범위(12KB) 내에 있습니다.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderFeedWidgetContent() {
+      if (state.feedRetrying) {
+        return `
+          <div class="local-fallback" style="background: rgba(56, 189, 248, 0.05); border-color: rgba(56, 189, 248, 0.3);">
+            <div class="local-fallback-icon">⏳</div>
+            <div class="local-fallback-title" style="color: #7dd3fc;">새 RSC 페이로드 수신 중...</div>
+            <div class="local-fallback-desc">startTransition(() =&gt; router.refresh()) 실행 중</div>
+          </div>
+        `;
+      }
+
+      if (state.feedError) {
+        // Local Fallback Card inside FeedWidget
+        return `
+          <div class="local-fallback">
+            <div class="local-fallback-icon">⚠️</div>
+            <div class="local-fallback-title">외부 피드를 불러올 수 없습니다</div>
+            <div class="local-fallback-desc">
+              서드파티 업스트림 서비스 지연 또는 500 오류가 발생했습니다. 다른 대시보드 기능은 정상 작동합니다.
+            </div>
+            <div class="digest-pill">Digest: ${state.lastDigest || '8a9b2c3d'}</div>
+            <button class="btn-retry-widget" onclick="handleFeedWidgetRetry()">
+              <span>🔄 이 위젯만 다시 시도</span>
+            </button>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="feed-list">
+          <div class="feed-item">
+            <span>🚀 Deploy v2.4.0 completed successfully</span>
+            <span class="feed-time">14:02:11</span>
+          </div>
+          <div class="feed-item">
+            <span>🔔 Webhook ping from payment gateway received</span>
+            <span class="feed-time">14:00:54</span>
+          </div>
+          <div class="feed-item">
+            <span>⚡ Auto-scaling node added to cluster ap-northeast-2</span>
+            <span class="feed-time">13:58:20</span>
+          </div>
+        </div>
+      `;
+    }
+
+    // Actions
+    function triggerFeedCrash() {
+      state.serverHealthy = false;
+      state.feedError = true;
+      state.lastDigest = 'feed_' + Math.random().toString(16).substring(2, 8);
+      document.getElementById('server-status-pill').className = 'status-badge red';
+      document.getElementById('server-status-pill').innerText = '서버: Feed 장애 발생';
+
+      if (state.granularEnabled && state.orderingCorrect) {
+        log(`💥 FeedWidget 비정상 예외 발생 (Digest: ${state.lastDigest})`, 'err');
+        log(`🛡️ <GranularErrorBoundary name="FeedWidget"> 에러 포착! 로컬 Fallback 렌더링 (Blast Radius: 25%)`, 'succ');
+      } else if (!state.granularEnabled) {
+        log(`💥 FeedWidget 에러 발생했으나 GranularErrorBoundary 없음! 상위로 버블링`, 'err');
+        log(`😱 app/demo/blast-radius/error.tsx 활성화! 대시보드 전체 파괴 (Blast Radius: 100%)`, 'err');
+      } else if (!state.orderingCorrect) {
+        log(`💥 FeedWidget 에러 발생했으나 Suspense가 GranularEB를 감싸고 있어 에러 누출!`, 'warn');
+        log(`😱 스트리밍 에러가 상위 error.tsx로 버블링되어 전체 대시보드 파괴 (Blast Radius: 100%)`, 'err');
+      }
+
+      renderUI();
+    }
+
+    function triggerMetricsCrash() {
+      state.metricsError = true;
+      log('💥 MetricsWidget 장애 발생 (모의)', 'err');
+      renderUI();
+    }
+
+    function restoreServerHealth() {
+      state.serverHealthy = true;
+      document.getElementById('server-status-pill').className = 'status-badge green';
+      document.getElementById('server-status-pill').innerText = '서버: 정상 (Healthy)';
+      log('💚 서버 장애가 복구되었습니다. 이제 위젯 재시도(Retry)가 성공할 수 있습니다.', 'succ');
+    }
+
+    function handleFeedWidgetRetry() {
+      log('🔄 FeedWidget: [이 위젯만 다시 시도] 버튼 클릭됨', 'event');
+      state.feedRetrying = true;
+      renderUI();
+
+      log('📡 startTransition(() => { router.refresh(); reset(); }) 호출', 'event');
+
+      setTimeout(() => {
+        state.feedRetrying = false;
+        if (!state.serverHealthy) {
+          log('⚠️ 서버 장애가 지속 중이므로 재시도 후에도 동일한 에러 발생 (새 Digest 발급)', 'warn');
+          state.lastDigest = 'feed_' + Math.random().toString(16).substring(2, 8);
+        } else {
+          state.feedError = false;
+          log('✅ FeedWidget 정상 복구 완료! 최신 피드 데이터 수신 성공 (Metrics/Profile 상태 보존)', 'succ');
+        }
+        renderUI();
+      }, 700);
+    }
+
+    function healServerAndRecover() {
+      restoreServerHealth();
+      handleFeedWidgetRetry();
+    }
+
+    function handleAntipatternReset() {
+      log('❌ 단순 reset() 호출: RSC 캐시 무효화 없이 클라이언트 바운더리만 리셋됨', 'warn');
+      log('😱 Router Cache의 실패 RSC 페이로드가 즉시 재평가되어 동일 에러 재발생!', 'err');
+      renderUI();
+    }
+
+    function handleGranularToggle(checked) {
+      state.granularEnabled = checked;
+      log(`바운더리 설정 변경: GranularErrorBoundary = ${checked ? 'ON' : 'OFF'}`, 'event');
+      updatePatternCode();
+      renderUI();
+    }
+
+    function handleOrderingToggle(checked) {
+      state.orderingCorrect = checked;
+      log(`배치 순서 변경: ${checked ? 'EB > Suspense (올바름)' : 'Suspense > EB (오류 위험)'}`, 'event');
+      updatePatternCode();
+      renderUI();
+    }
+
+    function updatePatternCode() {
+      const codeBox = document.getElementById('pattern-code');
+      if (state.granularEnabled) {
+        if (state.orderingCorrect) {
+          codeBox.innerHTML = `
+<span class="comment">// ✅ [표준] ErrorBoundary가 Suspense를 감쌈</span>
+&lt;<span class="fn">GranularErrorBoundary</span> <span class="kw">name</span>=<span class="str">"FeedWidget"</span> <span class="kw">fallback</span>={...}&gt;
+  &lt;<span class="fn">Suspense</span> <span class="kw">fallback</span>={&lt;<span class="fn">WidgetSkeleton</span> /&gt;}&gt;
+    &lt;<span class="fn">FeedWidget</span> /&gt; <span class="comment">// 비동기 RSC</span>
+  &lt;/<span class="fn">Suspense</span>&gt;
+&lt;/<span class="fn">GranularErrorBoundary</span>&gt;`;
+        } else {
+          codeBox.innerHTML = `
+<span class="comment">// ❌ [안티패턴] Suspense가 ErrorBoundary를 감쌈 (위험!)</span>
+&lt;<span class="fn">Suspense</span> <span class="kw">fallback</span>={&lt;<span class="fn">WidgetSkeleton</span> /&gt;}&gt;
+  &lt;<span class="fn">GranularErrorBoundary</span> <span class="kw">name</span>=<span class="str">"FeedWidget"</span>&gt;
+    &lt;<span class="fn">FeedWidget</span> /&gt; <span class="comment">// 스트리밍 도중 에러 발생 시 바운더리 우회</span>
+  &lt;/<span class="fn">GranularErrorBoundary</span>&gt;
+&lt;/<span class="fn">Suspense</span>&gt;`;
+        }
+      } else {
+        codeBox.innerHTML = `
+<span class="comment">// ❌ [안티패턴] GranularErrorBoundary 부재 (전체 폭발 위험)</span>
+&lt;<span class="fn">Suspense</span> <span class="kw">fallback</span>={&lt;<span class="fn">WidgetSkeleton</span> /&gt;}&gt;
+  &lt;<span class="fn">FeedWidget</span> /&gt; <span class="comment">// 장애 발생 시 상위 demo/blast-radius/error.tsx로 폭발</span>
+&lt;/<span class="fn">Suspense</span>&gt;`;
+      }
+    }
+
+    function simulateWidgetRefresh() {
+      log('🔄 사용자가 대시보드 동시 데이터 갱신을 트리거함', 'event');
+      const dau = document.getElementById('stat-dau');
+      if (dau) {
+        const val = 42000 + Math.floor(Math.random() * 2000);
+        dau.innerText = val.toLocaleString();
+      }
+      log('📊 MetricsWidget 데이터 최신화 완료', 'succ');
+    }
+
+    function simulateFullPageRefresh() {
+      log('🌐 브라우저 전체 새로고침 시뮬레이션', 'event');
+      renderUI();
+    }
+
+    function resetAll() {
+      state.granularEnabled = true;
+      state.orderingCorrect = true;
+      state.serverHealthy = true;
+      state.feedError = false;
+      state.metricsError = false;
+      state.lastDigest = null;
+      state.feedRetrying = false;
+      document.getElementById('toggle-granular').checked = true;
+      document.getElementById('toggle-ordering').checked = true;
+      document.getElementById('server-status-pill').className = 'status-badge green';
+      document.getElementById('server-status-pill').innerText = '서버: 정상 (Healthy)';
+      updatePatternCode();
+      clearLogs();
+      log('전체 상태가 초기화되었습니다.', 'succ');
+      switchScenario(1);
+    }
+
+    function switchScenario(num) {
+      state.scenario = num;
+      const tabs = document.querySelectorAll('.tab-btn');
+      tabs.forEach((t, idx) => {
+        if (idx === num - 1) t.classList.add('active');
+        else t.classList.remove('active');
+      });
+
+      const title = document.getElementById('sc-title');
+      const target = document.getElementById('sc-target');
+      const desc = document.getElementById('sc-desc');
+      const steps = document.getElementById('sc-steps');
+
+      if (num === 1) {
+        title.innerText = '시나리오 1: Granular 격리 성공 (폭발 반경 통제)';
+        target.innerText = 'Granular EB: ON · Scope: FeedWidget';
+        target.className = 'status-badge green';
+        desc.innerHTML = '<code>FeedWidget</code>에만 시스템 장애가 발생했을 때, <code>&lt;GranularErrorBoundary&gt;</code>가 에러를 국소 차단하여 Metrics와 Profile 위젯은 100% 정상 작동을 유지합니다.';
+        steps.innerHTML = `
+          <span class="step-label">가이드 단계:</span>
+          <button class="step-btn" onclick="triggerFeedCrash()">1. FeedWidget 에러 발생 (?scope=feed)</button>
+          <button class="step-btn" onclick="healServerAndRecover()">2. Feed 위젯 독립 복구 시도</button>
+        `;
+        document.getElementById('toggle-granular').checked = true;
+        document.getElementById('toggle-ordering').checked = true;
+        state.granularEnabled = true;
+        state.orderingCorrect = true;
+        state.feedError = false;
+        updatePatternCode();
+        renderUI();
+      } else if (num === 2) {
+        title.innerText = '시나리오 2: Granular 미적용 시 전체 대시보드 파괴 (대비)';
+        target.innerText = 'Granular EB: OFF · Scope: Page 전체 붕괴';
+        target.className = 'status-badge red';
+        desc.innerHTML = '개별 위젯 바운더리 없이 상위 세그먼트 <code>error.tsx</code>에만 의존할 경우, 보조 위젯 하나의 오류로 인해 멀쩡하던 Metrics/Profile까지 통째로 언마운트되는 재앙을 체험합니다.';
+        steps.innerHTML = `
+          <span class="step-label">가이드 단계:</span>
+          <button class="step-btn" onclick="triggerFeedCrash()">1. FeedWidget 에러 트리거</button>
+          <button class="step-btn" onclick="handleAntipatternReset()">2. 단순 reset() 실패 확인</button>
+          <button class="step-btn" onclick="healServerAndRecover()">3. 서버 정상화 후 startTransition 복구</button>
+        `;
+        document.getElementById('toggle-granular').checked = false;
+        state.granularEnabled = false;
+        state.feedError = false;
+        updatePatternCode();
+        renderUI();
+      } else if (num === 3) {
+        title.innerText = '시나리오 3: 올바른 배치 순서 (EB > Suspense 검증)';
+        target.innerText = 'Architecture: Boundary Nesting Order';
+        target.className = 'status-badge purple';
+        desc.innerHTML = 'Next.js 16/React 19에서 비동기 RSC 스트리밍 오류를 온전히 포섭하려면 <strong>반드시 ErrorBoundary가 Suspense 바깥</strong>에 위치해야 합니다. 순서가 뒤바뀌면 에러가 바운더리를 뚫고 상위로 누출됩니다.';
+        steps.innerHTML = `
+          <span class="step-label">가이드 단계:</span>
+          <button class="step-btn" onclick="handleOrderingToggle(false)">1. 잘못된 순서로 변경 (Suspense > EB)</button>
+          <button class="step-btn" onclick="triggerFeedCrash()">2. Feed 에러 발생 (상위 누출 확인)</button>
+          <button class="step-btn" onclick="handleOrderingToggle(true)">3. 올바른 순서로 재설정 (EB > Suspense)</button>
+        `;
+        document.getElementById('toggle-granular').checked = true;
+        document.getElementById('toggle-ordering').checked = false;
+        state.granularEnabled = true;
+        state.orderingCorrect = false;
+        state.feedError = false;
+        updatePatternCode();
+        renderUI();
+      } else if (num === 4) {
+        title.innerText = '시나리오 4: 위젯 독립 복구 (startTransition + refresh)';
+        target.innerText = 'Lifecycle: startTransition(() => { router.refresh(); reset(); })';
+        target.className = 'status-badge yellow';
+        desc.innerHTML = '단순 <code>reset()</code>만 누르면 RSC 캐시 재평가로 무한 실패 루프에 빠집니다. 반면 <code>startTransition + refresh</code>를 수행하면 다른 위젯의 클라이언트 상태(입력값, 스크롤)를 깨뜨리지 않고 장애 위젯만 새로고침됩니다.';
+        steps.innerHTML = `
+          <span class="step-label">가이드 단계:</span>
+          <button class="step-btn" onclick="triggerFeedCrash()">1. Feed 에러 발생</button>
+          <button class="step-btn" onclick="handleFeedWidgetRetry()">2. 서버 장애 중 재시도 (재실패 확인)</button>
+          <button class="step-btn" onclick="healServerAndRecover()">3. 서버 복구 후 재시도 성공</button>
+        `;
+        document.getElementById('toggle-granular').checked = true;
+        document.getElementById('toggle-ordering').checked = true;
+        state.granularEnabled = true;
+        state.orderingCorrect = true;
+        state.feedError = true;
+        state.lastDigest = 'feed_99a8b1';
+        updatePatternCode();
+        renderUI();
+      }
+    }
+
+    // Initial render
+    log('Next.js 16 원칙 3 GranularErrorBoundary 프로토타입 준비 완료', 'succ');
+    updatePatternCode();
+    renderUI();
+  </script>
+</body>
+</html>
