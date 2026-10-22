@@ -69,6 +69,16 @@ describe('evaluateChaos', () => {
     ).rejects.toThrow(/\[Simulated System Failure\]/);
   });
 
+  it('should not throw in root_layout or layout when scope is omitted', async () => {
+    // When chaos=unexpected but no scope is given, layouts should not crash
+    await expect(
+      evaluateChaos({ chaos: 'unexpected' }, 'root_layout')
+    ).resolves.toBeUndefined();
+    await expect(
+      evaluateChaos({ chaos: 'unexpected' }, 'layout')
+    ).resolves.toBeUndefined();
+  });
+
   it('should throw simulated layout crash when scope is layout', async () => {
     await expect(
       evaluateChaos({ chaos: 'unexpected', scope: 'layout' }, 'layout')

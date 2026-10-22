@@ -36,6 +36,14 @@ export async function evaluateChaos(
   }
 
   // 2. 스코프 필터링 검증
+  // root_layout과 layout은 명시적으로 해당 scope가 지정되었을 때만 트리거
+  if (
+    (optionsObj.scope === 'root_layout' && targetScope !== 'root_layout') ||
+    (optionsObj.scope === 'layout' && targetScope !== 'layout')
+  ) {
+    return;
+  }
+
   // URL에 scope가 지정되어 있는데 현재 컴포넌트의 scope와 다르면 무시
   if (targetScope && optionsObj.scope && targetScope !== optionsObj.scope) {
     return;
