@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Next.js 16 원칙 2 (바운더리 계층 & startTransition 복구) 대화형 프로토타입</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #151d2e;
+      --card-border: #23314d;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.12);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.12);
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.12);
+      --purple: #a855f7;
+      --purple-bg: rgba(168, 85, 247, 0.12);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 24px; line-height: 1.5; font-size: 14px; }
+    .container { max-width: 1300px; margin: 0 auto; }
+
+    header { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--card-border); }
+    .title-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    h1 { font-size: 22px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 10px; }
+    .badge { font-size: 11px; font-weight: 600; background: rgba(56, 189, 248, 0.15); color: var(--accent); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .subtext { color: var(--text-muted); margin-top: 6px; font-size: 13px; max-width: 900px; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 6px; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; overflow-x: auto; }
+    .tab-btn { background: transparent; border: none; color: var(--text-muted); font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: all 0.2s; }
+    .tab-btn.active { background: var(--card-bg); color: var(--accent); border: 1px solid var(--card-border); }
+    .tab-btn:hover:not(.active) { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+
+    /* Scenario banner */
+    .scenario-banner { background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; }
+    .scenario-title { font-weight: 700; font-size: 14px; color: var(--accent); display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+    .scenario-desc { font-size: 13px; color: #cbd5e1; }
+    .walkthrough-steps { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+    .step-label { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+    .step-btn { background: var(--card-bg); border: 1px solid var(--accent); color: var(--accent); font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
+    .step-btn:hover { background: var(--accent); color: #0b0f19; }
+
+    /* Layout Grid */
+    .main-grid { display: grid; grid-template-columns: 360px 1fr; gap: 20px; margin-bottom: 24px; }
+    @media (max-width: 1050px) { .main-grid { grid-template-columns: 1fr; } }
+
+    .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 18px; }
+    .card-title { font-size: 15px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; }
+
+    /* Controls Panel */
+    .control-group { margin-bottom: 16px; }
+    .control-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 8px; font-weight: 700; }
+    .btn-col { display: flex; flex-direction: column; gap: 8px; }
+    .btn { background: #1e293b; color: var(--text); border: 1px solid var(--card-border); padding: 9px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; text-align: left; transition: all 0.15s; display: flex; align-items: center; justify-content: space-between; }
+    .btn:hover { background: #27354f; border-color: #3b82f6; }
+    .btn-danger { border-color: rgba(239, 68, 68, 0.4); color: #fca5a5; }
+    .btn-danger:hover { background: rgba(239, 68, 68, 0.2); border-color: var(--danger); }
+    .btn-success { border-color: rgba(16, 185, 129, 0.4); color: #86efac; }
+    .btn-success:hover { background: rgba(16, 185, 129, 0.2); border-color: var(--success); }
+    .btn-accent { border-color: rgba(56, 189, 248, 0.4); color: #7dd3fc; }
+    .btn-accent:hover { background: rgba(56, 189, 248, 0.2); border-color: var(--accent); }
+
+    /* Component Tree Visualizer */
+    .tree-box { background: #0f1623; border: 1px solid var(--card-border); border-radius: 6px; padding: 14px; font-family: monospace; font-size: 12px; }
+    .tree-node { padding: 6px 10px; margin: 4px 0; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s; border: 1px solid transparent; }
+    .tree-node.healthy { background: rgba(16, 185, 129, 0.06); color: #6ee7b7; border-color: rgba(16, 185, 129, 0.2); }
+    .tree-node.crashed { background: var(--danger-bg); color: #fca5a5; border-color: var(--danger); }
+    .tree-node.active-eb { background: var(--warning-bg); color: #fcd34d; border-color: var(--warning); font-weight: 700; }
+    .tree-node.unmounted { opacity: 0.35; text-decoration: line-through; background: transparent; }
+
+    /* Preview Browser Shell */
+    .browser-shell { background: #0b0f19; border: 1px solid var(--card-border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; min-height: 480px; }
+    .browser-header { background: #151d2e; border-bottom: 1px solid var(--card-border); padding: 8px 14px; display: flex; align-items: center; gap: 8px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot.red { background: #ef4444; }
+    .dot.yellow { background: #f59e0b; }
+    .dot.green { background: #10b981; }
+    .url-bar { background: #0b0f19; border: 1px solid var(--card-border); border-radius: 4px; padding: 4px 12px; font-family: monospace; font-size: 11px; color: var(--text-muted); flex: 1; margin-left: 10px; }
+
+    /* Simulated App Layouts */
+    .app-root-shell { flex: 1; display: flex; flex-direction: column; }
+    .global-gnb { background: #1e293b; border-bottom: 1px solid var(--card-border); padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; }
+    .gnb-brand { font-weight: 700; font-size: 13px; color: #f8fafc; display: flex; align-items: center; gap: 8px; }
+    .gnb-status { font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+
+    .app-body-split { flex: 1; display: flex; min-height: 380px; }
+    .segment-sidebar { width: 200px; background: #131a29; border-right: 1px solid var(--card-border); padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .sidebar-item { padding: 6px 10px; font-size: 12px; border-radius: 4px; color: var(--text-muted); }
+    .sidebar-item.active { background: rgba(56, 189, 248, 0.15); color: var(--accent); font-weight: 600; }
+
+    .segment-content { flex: 1; padding: 20px; background: #0e1420; display: flex; flex-direction: column; }
+
+    /* Error Views inside Browser */
+    .error-card { background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 8px; padding: 24px; text-align: center; margin: auto; max-width: 520px; }
+    .error-card.global { background: #1e1014; border: 2px solid #ef4444; border-radius: 0; padding: 40px; margin: 0; min-height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+    .error-card h2 { font-size: 17px; color: #fca5a5; margin-bottom: 8px; font-weight: 700; }
+    .error-card p { font-size: 13px; color: #e2e8f0; margin-bottom: 14px; }
+    .digest-badge { display: inline-block; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(239, 68, 68, 0.4); padding: 3px 8px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #f87171; margin-bottom: 16px; }
+
+    .retry-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .btn-retry-anti { background: #334155; color: #cbd5e1; border: 1px solid #475569; padding: 8px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
+    .btn-retry-anti:hover { background: #475569; color: #fff; }
+    .btn-retry-rec { background: var(--accent); color: #0b0f19; border: none; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+    .btn-retry-rec:hover { background: var(--accent-hover); }
+
+    /* Normal Page View inside Browser */
+    .page-healthy-box { background: #151d2e; border: 1px solid var(--card-border); border-radius: 8px; padding: 24px; }
+    .page-healthy-title { font-size: 16px; font-weight: 700; color: #38bdf8; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .page-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+    .stat-tile { background: #0f1623; border: 1px solid var(--card-border); border-radius: 6px; padding: 12px; }
+    .stat-label { font-size: 11px; color: var(--text-muted); }
+    .stat-val { font-size: 18px; font-weight: 700; color: #f8fafc; margin-top: 4px; }
+
+    /* State Monitors */
+    .status-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 4px; }
+    .status-badge.green { background: var(--success-bg); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .status-badge.red { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); }
+    .status-badge.yellow { background: var(--warning-bg); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .status-badge.purple { background: var(--purple-bg); color: var(--purple); border: 1px solid rgba(168, 85, 247, 0.3); }
+
+    /* Code Snippet Box */
+    .code-box { background: #090d16; border: 1px solid var(--card-border); border-radius: 6px; padding: 14px; font-family: 'Fira Code', monospace; font-size: 12px; line-height: 1.6; color: #cbd5e1; overflow-x: auto; }
+    .kw { color: #f472b6; }
+    .fn { color: #38bdf8; }
+    .str { color: #a7f3d0; }
+    .comment { color: #64748b; font-style: italic; }
+
+    /* Event Log List */
+    .log-box { background: #090d16; border: 1px solid var(--card-border); border-radius: 6px; padding: 10px 14px; max-height: 140px; overflow-y: auto; font-family: monospace; font-size: 11px; }
+    .log-entry { margin-bottom: 4px; color: #94a3b8; }
+    .log-entry span.time { color: #64748b; }
+    .log-entry span.event { color: var(--accent); font-weight: 600; }
+    .log-entry span.warn { color: var(--warning); }
+    .log-entry span.err { color: var(--danger); }
+    .log-entry span.succ { color: var(--success); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="title-row">
+        <h1>
+          Next.js 16 원칙 2: 바운더리 계층 구조 & startTransition 복구 시뮬레이터
+          <span class="badge">Prototype v1.0</span>
+        </h1>
+        <button class="step-btn" onclick="resetAll()">전체 상태 초기화</button>
+      </div>
+      <p class="subtext">
+        <strong>목적:</strong> <code>/demo/boundaries</code> 라우트에서 <code>layout.tsx</code>와 <code>page.tsx</code>의 에러 격리 차이(루트 레이아웃 붕괴 시 <code>global-error.tsx</code> 동작) 및 단순 <code>reset()</code> 실패 vs <code>startTransition(() => { router.refresh(); reset(); })</code> 복구 성공 라이프사이클을 시연합니다.
+      </p>
+    </header>
+
+    <!-- Tabbed Guided Scenarios -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchScenario(1)">시나리오 1: Page 에러 격리 (Layout 보존)</button>
+      <button class="tab-btn" onclick="switchScenario(2)">시나리오 2: Layout 에러 버블링 (Layout 붕괴)</button>
+      <button class="tab-btn" onclick="switchScenario(3)">시나리오 3: 루트 Layout 붕괴와 global-error.tsx</button>
+      <button class="tab-btn" onclick="switchScenario(4)">시나리오 4: 단순 reset() 함정 (RSC 캐시 루프)</button>
+      <button class="tab-btn" onclick="switchScenario(5)">시나리오 5: startTransition 복구 성공 표준</button>
+    </div>
+
+    <!-- Active Scenario Banner -->
+    <div class="scenario-banner" id="scenario-banner">
+      <div class="scenario-title">
+        <span id="sc-title">시나리오 1: Page 에러 격리 (Layout 보존)</span>
+        <span class="status-badge purple" id="sc-target">Target: app/demo/boundaries/page.tsx</span>
+      </div>
+      <div class="scenario-desc" id="sc-desc">
+        Page 렌더링 중 비정상 예외 발생 시, 세그먼트의 <code>error.tsx</code>가 포착하여 상위 Layout(사이드바, 네비게이션)은 온전히 유지된 채 본문만 대체됩니다.
+      </div>
+      <div class="walkthrough-steps" id="sc-steps">
+        <span class="step-label">가이드 단계:</span>
+        <button class="step-btn" onclick="triggerCrash('page')">1. Page 에러 발생</button>
+        <button class="step-btn" onclick="healServerAndRecover()">2. startTransition 복구</button>
+      </div>
+    </div>
+
+    <!-- Main Grid: Controls & Component Tree on Left, Render Preview on Right -->
+    <div class="main-grid">
+      <!-- Left Column: Controls & Tree Monitor -->
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+        
+        <!-- Interactive Controls Card -->
+        <div class="card">
+          <div class="card-title">
+            <span>카오스 제어 및 조작</span>
+            <span class="status-badge green" id="server-status-pill">서버: 정상 (Healthy)</span>
+          </div>
+
+          <!-- Crash Triggers -->
+          <div class="control-group">
+            <div class="control-label">장애 발생 지점 선택 (Scope)</div>
+            <div class="btn-col">
+              <button class="btn btn-danger" onclick="triggerCrash('page')">
+                <span>💥 Page 에러 유발</span>
+                <code>?scope=page</code>
+              </button>
+              <button class="btn btn-danger" onclick="triggerCrash('layout')">
+                <span>💥 세그먼트 Layout 에러 유발</span>
+                <code>?scope=layout</code>
+              </button>
+              <button class="btn btn-danger" onclick="triggerCrash('root_layout')">
+                <span>💥 루트 Layout 에러 유발</span>
+                <code>?scope=root_layout</code>
+              </button>
+            </div>
+          </div>
+
+          <!-- Server State & Cache Controls -->
+          <div class="control-group">
+            <div class="control-label">서버 상태 및 RSC 캐시 조작</div>
+            <div class="btn-col">
+              <button class="btn btn-accent" onclick="toggleServerHealth()">
+                <span id="btn-health-label">🔄 서버 정상화 (Fix Server Error)</span>
+                <span class="status-badge yellow" id="cache-status-pill">RSC 캐시: 정상</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Direct Recovery Buttons -->
+          <div class="control-group">
+            <div class="control-label">에러 바운더리 복구 명령</div>
+            <div class="btn-col">
+              <button class="btn" onclick="executeSimpleReset()">
+                <span>❌ 단순 reset() 호출</span>
+                <span style="font-size: 10px; color: #94a3b8;">캐시 미갱신</span>
+              </button>
+              <button class="btn btn-success" onclick="executeRecommendedRecovery()">
+                <span>✅ startTransition + refresh</span>
+                <span style="font-size: 10px; color: #86efac;">RSC 재요청</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Component Tree Visualizer -->
+        <div class="card">
+          <div class="card-title">
+            <span>컴포넌트 계층 트리 실시간 상태</span>
+            <span style="font-size: 11px; color: var(--text-muted);">Outer to Inner</span>
+          </div>
+          <div class="tree-box">
+            <div class="tree-node healthy" id="node-root-layout">
+              <span>① RootLayout (app/layout.tsx)</span>
+              <span class="status-text">정상</span>
+            </div>
+            <div class="tree-node healthy" id="node-global-eb" style="margin-left: 14px;">
+              <span>🛡️ GlobalErrorBoundary (global-error.tsx)</span>
+              <span class="status-text">대기</span>
+            </div>
+            <div class="tree-node healthy" id="node-root-eb" style="margin-left: 14px;">
+              <span>🛡️ RootErrorBoundary (app/error.tsx)</span>
+              <span class="status-text">대기</span>
+            </div>
+            <div class="tree-node healthy" id="node-seg-layout" style="margin-left: 28px;">
+              <span>② SegmentLayout (boundaries/layout.tsx)</span>
+              <span class="status-text">정상</span>
+            </div>
+            <div class="tree-node healthy" id="node-seg-eb" style="margin-left: 42px;">
+              <span>🛡️ SegmentErrorBoundary (boundaries/error.tsx)</span>
+              <span class="status-text">대기</span>
+            </div>
+            <div class="tree-node healthy" id="node-seg-page" style="margin-left: 56px;">
+              <span>③ SegmentPage (boundaries/page.tsx)</span>
+              <span class="status-text">정상</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- System Event Log -->
+        <div class="card">
+          <div class="card-title">
+            <span>실행 이벤트 로그</span>
+            <button class="step-btn" style="padding: 2px 6px;" onclick="clearLogs()">Clear</button>
+          </div>
+          <div class="log-box" id="event-log">
+            <div class="log-entry"><span class="time">[00:00:00]</span> <span class="event">INIT:</span> 시뮬레이터가 정상 상태로 준비되었습니다.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: Interactive Browser Preview & Code Comparison -->
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+        
+        <!-- Browser Preview Shell -->
+        <div class="card" style="padding: 12px;">
+          <div class="card-title" style="margin-bottom: 8px;">
+            <span>실시간 브라우저 렌더 뷰 (Viewport Preview)</span>
+            <span class="status-badge green" id="active-eb-pill">활성 바운더리: 없음 (정상 렌더링)</span>
+          </div>
+
+          <div class="browser-shell">
+            <!-- Browser Header -->
+            <div class="browser-header">
+              <div class="dot red"></div>
+              <div class="dot yellow"></div>
+              <div class="dot green"></div>
+              <div class="url-bar" id="browser-url">https://example.com/demo/boundaries</div>
+            </div>
+
+            <!-- Viewport Body -->
+            <div class="app-root-shell" id="viewport-root">
+              
+              <!-- Root Layout GNB -->
+              <div class="global-gnb" id="root-gnb">
+                <div class="gnb-brand">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                  Demo Portal (Root Layout)
+                </div>
+                <span class="gnb-status status-badge green" id="gnb-health">Root Shell OK</span>
+              </div>
+
+              <!-- Root Error Placeholder (Hidden by default) -->
+              <div id="root-error-view" style="display: none; padding: 40px; text-align: center;">
+                <div class="error-card">
+                  <h2>💥 app/error.tsx 활성화!</h2>
+                  <p>루트 라우트 레벨의 에러 바운더리가 하위 세그먼트 Layout 붕괴를 포착했습니다.</p>
+                  <div class="digest-badge" id="root-error-digest">Digest: 2891048192</div>
+                  <div class="retry-actions">
+                    <button class="btn-retry-anti" onclick="executeSimpleReset()">단순 reset()</button>
+                    <button class="btn-retry-rec" onclick="executeRecommendedRecovery()">startTransition(() => { router.refresh(); reset(); })</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Global Error View Placeholder (Hidden by default) -->
+              <div id="global-error-view" style="display: none; height: 100%;">
+                <div class="error-card global">
+                  <h2>🚨 app/global-error.tsx (치명적 오류)</h2>
+                  <p style="max-width: 480px; margin-bottom: 16px;">
+                    최상위 <code>app/layout.tsx</code>가 붕괴하여 전체 문서(Root Shell)가 언마운트되었습니다.<br/>
+                    <code>global-error.tsx</code>는 자체 <code>&lt;html&gt;</code>과 <code>&lt;body&gt;</code>를 렌더링하여 최소한의 복구 화면을 제공합니다.
+                  </p>
+                  <div class="digest-badge" id="global-error-digest">Digest: 9940182741</div>
+                  <div class="retry-actions">
+                    <button class="btn-retry-rec" onclick="executeRecommendedRecovery()">
+                      전체 브라우저 새로고침 복구
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Segment Shell (Boundaries Layout + Page) -->
+              <div class="app-body-split" id="segment-shell">
+                
+                <!-- Boundaries Sidebar (Layout) -->
+                <div class="segment-sidebar" id="segment-sidebar">
+                  <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase;">
+                    Boundaries Layout
+                  </div>
+                  <div class="sidebar-item active">📁 계층 구조 개요</div>
+                  <div class="sidebar-item">🔄 복구 메커니즘</div>
+                  <div class="sidebar-item">📊 성능 지표</div>
+                  <div style="margin-top: auto; font-size: 10px; color: var(--text-muted); padding: 4px;">
+                    세그먼트 레이아웃 정상 마운트됨
+                  </div>
+                </div>
+
+                <!-- Boundaries Page Content Area -->
+                <div class="segment-content" id="segment-content-area">
+                  
+                  <!-- Healthy Page View -->
+                  <div class="page-healthy-box" id="healthy-page-view">
+                    <div class="page-healthy-title">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                      /demo/boundaries/page.tsx 정상 렌더링
+                    </div>
+                    <p style="color: var(--text-muted); font-size: 13px;">
+                      현재 비동기 서버 컴포넌트 데이터 페칭이 성공적으로 수행되어 정상 UI가 마운트되어 있습니다.
+                    </p>
+                    <div class="page-stats-grid">
+                      <div class="stat-tile">
+                        <div class="stat-label">렌더링 세그먼트</div>
+                        <div class="stat-val" style="font-size: 14px; color: #38bdf8;">/boundaries</div>
+                      </div>
+                      <div class="stat-tile">
+                        <div class="stat-label">RSC Payload</div>
+                        <div class="stat-val" style="font-size: 14px; color: #34d399;">200 OK (Clean)</div>
+                      </div>
+                      <div class="stat-tile">
+                        <div class="stat-label">장애 격리 상태</div>
+                        <div class="stat-val" style="font-size: 14px; color: #a78bfa;">Isolated</div>
+                      </div>
+                    </div>
+                    <div style="font-size: 12px; color: #94a3b8; background: #0f1623; border: 1px dashed var(--card-border); padding: 12px; border-radius: 6px;">
+                      💡 좌측 패널의 <strong>"💥 Page 에러 유발"</strong>을 클릭하여 이 영역만 <code>error.tsx</code>로 교체되고 좌측 사이드바(Layout)는 유지되는 모습을 확인해보세요.
+                    </div>
+                  </div>
+
+                  <!-- Segment Error View (Hidden by default) -->
+                  <div id="segment-error-view" style="display: none; margin: auto;">
+                    <div class="error-card">
+                      <h2>⚠️ demo/boundaries/error.tsx 활성화</h2>
+                      <p>Page 렌더링 중 오류가 발생했습니다. (세그먼트 Layout은 안전하게 보존됨)</p>
+                      <div class="digest-badge" id="segment-error-digest">Digest: 1827401923</div>
+                      <div class="retry-actions">
+                        <button class="btn-retry-anti" onclick="executeSimpleReset()">❌ 단순 reset() [안티패턴]</button>
+                        <button class="btn-retry-rec" onclick="executeRecommendedRecovery()">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                          ✅ startTransition 복구 [표준]
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- Code Reference Panel -->
+        <div class="card">
+          <div class="card-title">
+            <span id="code-panel-title">💡 표준 복구 코드 vs 안티패턴 비교</span>
+            <span class="status-badge purple">Next.js 16 App Router 표준</span>
+          </div>
+          <div class="code-box" id="code-snippet-box">
+<span class="comment">// app/demo/boundaries/error.tsx</span>
+<span class="kw">'use client'</span>;
+
+<span class="kw">import</span> { useRouter } <span class="kw">from</span> <span class="str">'next/navigation'</span>;
+<span class="kw">import</span> { startTransition } <span class="kw">from</span> <span class="str">'react'</span>;
+
+<span class="kw">export default function</span> <span class="fn">BoundariesError</span>({ error, reset }: { error: Error & { digest?: string }; reset: () => <span class="kw">void</span> }) {
+  <span class="kw">const</span> router = <span class="fn">useRouter</span>();
+
+  <span class="kw">const</span> <span class="fn">handleRetry</span> = () => {
+    <span class="comment">// ❌ 단순 reset(): 클라이언트 에러 상태만 초기화 -> 캐시된 실패 RSC 페이로드 재평가 -> 즉시 재발생!</span>
+    <span class="comment">// ✅ startTransition: router.refresh()로 서버에 최신 RSC를 재요청한 후 reset() 호출</span>
+    <span class="fn">startTransition</span>(() => {
+      router.<span class="fn">refresh</span>(); <span class="comment">// 라우터 캐시 무효화 및 서버 컴포넌트 재페칭</span>
+      <span class="fn">reset</span>();          <span class="comment">// 바운더리 상태 초기화</span>
+    });
+  };
+
+  <span class="kw">return</span> (
+    &lt;<span class="kw">button</span> <span class="fn">onClick</span>={handleRetry}&gt;다시 시도&lt;/<span class="kw">button</span>&gt;
+  );
+}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Pure State Model for Boundary Hierarchy & RSC Recovery
+    const state = {
+      serverHealth: 'healthy',      // 'healthy' | 'failing'
+      routerCache: 'clean',         // 'clean' | 'stale_error'
+      crashedNode: null,            // null | 'page' | 'layout' | 'root_layout'
+      activeBoundary: null,         // null | 'seg_eb' | 'root_eb' | 'global_eb'
+      currentScenario: 1,
+      retryCount: 0,
+      lastDigest: null,
+      isPending: false
+    };
+
+    function logEvent(type, message) {
+      const now = new Date();
+      const timeStr = `[${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}]`;
+      const logBox = document.getElementById('event-log');
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+
+      let typeClass = 'event';
+      if (type === 'WARN') typeClass = 'warn';
+      if (type === 'ERR') typeClass = 'err';
+      if (type === 'SUCC') typeClass = 'succ';
+
+      entry.innerHTML = `<span class="time">${timeStr}</span> <span class="${typeClass}">${type}:</span> ${message}`;
+      logBox.appendChild(entry);
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function clearLogs() {
+      document.getElementById('event-log').innerHTML = '';
+      logEvent('INFO', '로그가 초기화되었습니다.');
+    }
+
+    function generateDigest() {
+      return String(Math.floor(Math.random() * 8999999999 + 1000000000));
+    }
+
+    // Trigger Crash in specific component
+    function triggerCrash(scope) {
+      state.crashedNode = scope;
+      state.lastDigest = generateDigest();
+      state.serverHealth = 'failing';
+      state.routerCache = 'stale_error';
+
+      if (scope === 'page') {
+        // Page crash is caught by Segment error.tsx
+        state.activeBoundary = 'seg_eb';
+        logEvent('ERR', `Page 컴포넌트 크래시! [Digest: ${state.lastDigest}]. Segment Error Boundary(error.tsx)가 포착함.`);
+      } else if (scope === 'layout') {
+        // Layout crash CANNOT be caught by sibling error.tsx! Bubbles to root error.tsx
+        state.activeBoundary = 'root_eb';
+        logEvent('ERR', `Segment Layout 크래시! [Digest: ${state.lastDigest}]. Layout은 ErrorBoundary의 부모이므로 sibling error.tsx 포착 불가 -> app/error.tsx로 버블링됨!`);
+      } else if (scope === 'root_layout') {
+        // Root layout crash CANNOT be caught by app/error.tsx! Bubbles to global-error.tsx
+        state.activeBoundary = 'global_eb';
+        logEvent('ERR', `Root Layout 크래시! [Digest: ${state.lastDigest}]. 전체 문서 붕괴 -> app/global-error.tsx 활성화!`);
+      }
+
+      render();
+    }
+
+    // Toggle server health manually
+    function toggleServerHealth() {
+      if (state.serverHealth === 'failing') {
+        state.serverHealth = 'healthy';
+        logEvent('SUCC', '서버 장애 원인이 해결되었습니다. (서버 상태: Healthy)');
+      } else {
+        state.serverHealth = 'failing';
+        logEvent('WARN', '서버에 장애가 주입되었습니다. (서버 상태: Failing)');
+      }
+      render();
+    }
+
+    // Anti-pattern: Simple reset()
+    function executeSimpleReset() {
+      if (!state.activeBoundary) {
+        logEvent('INFO', '활성화된 에러 바운더리가 없습니다.');
+        return;
+      }
+
+      logEvent('WARN', '단순 reset() 호출됨: 클라이언트 Error Boundary 상태만 리셋합니다.');
+
+      // Because routerCache still has 'stale_error', re-evaluating throws immediately!
+      if (state.routerCache === 'stale_error') {
+        setTimeout(() => {
+          logEvent('ERR', `💥 복구 실패! Router Cache에 실패 RSC 페이로드가 여전히 남아있어 동일 에러 재발생 [Digest: ${state.lastDigest}]`);
+          render();
+        }, 300);
+      } else {
+        // Clean cache
+        state.activeBoundary = null;
+        state.crashedNode = null;
+        logEvent('SUCC', '정상 복구되었습니다.');
+        render();
+      }
+    }
+
+    // Recommended Pattern: startTransition(() => { router.refresh(); reset(); })
+    function executeRecommendedRecovery() {
+      if (!state.activeBoundary) {
+        logEvent('INFO', '활성화된 에러 바운더리가 없습니다.');
+        return;
+      }
+
+      logEvent('INFO', 'startTransition 시작: router.refresh()로 서버에 최신 RSC를 요청합니다...');
+      state.isPending = true;
+
+      setTimeout(() => {
+        state.isPending = false;
+        if (state.serverHealth === 'healthy') {
+          // Server returns fresh 200 OK RSC payload
+          state.routerCache = 'clean';
+          state.crashedNode = null;
+          state.activeBoundary = null;
+          logEvent('SUCC', '✅ 서버에서 최신 정상 RSC 페이로드를 성공적으로 수신했습니다! reset() 완료되어 정상 UI 복원.');
+        } else {
+          // Server is still broken
+          state.routerCache = 'stale_error';
+          state.lastDigest = generateDigest();
+          logEvent('WARN', `서버에 여전히 장애가 지속 중입니다. 새로운 RSC 요청 역시 실패함 [새 Digest: ${state.lastDigest}]`);
+        }
+        render();
+      }, 500);
+    }
+
+    // Combined walkthrough helper
+    function healServerAndRecover() {
+      state.serverHealth = 'healthy';
+      executeRecommendedRecovery();
+    }
+
+    function resetAll() {
+      state.serverHealth = 'healthy';
+      state.routerCache = 'clean';
+      state.crashedNode = null;
+      state.activeBoundary = null;
+      state.isPending = false;
+      logEvent('INFO', '전체 상태가 초기화되었습니다.');
+      render();
+    }
+
+    function switchScenario(num) {
+      state.currentScenario = num;
+      const tabs = document.querySelectorAll('.tab-btn');
+      tabs.forEach((t, i) => t.classList.toggle('active', i === num - 1));
+
+      const titleEl = document.getElementById('sc-title');
+      const descEl = document.getElementById('sc-desc');
+      const targetEl = document.getElementById('sc-target');
+      const stepsEl = document.getElementById('sc-steps');
+
+      resetAll();
+
+      if (num === 1) {
+        titleEl.textContent = '시나리오 1: Page 에러 격리 (Layout 보존)';
+        targetEl.textContent = 'Target: app/demo/boundaries/page.tsx';
+        descEl.innerHTML = 'Page 렌더링 중 비정상 예외 발생 시, 세그먼트의 <code>error.tsx</code>가 포착하여 상위 Layout(사이드바, 네비게이션)은 온전히 유지된 채 본문만 대체됩니다.';
+        stepsEl.innerHTML = `
+          <span class="step-label">가이드 단계:</span>
+          <button class="step-btn" onclick="triggerCrash('page')">1. Page 에러 발생</button>
+          <button class="step-btn" onclick="healServerAndRecover()">2. startTransition 복구</button>
+        `;
+      } else if (num === 2) {
+        titleEl.textContent = '시나리오 2: Layout 에러 버블링 (Layout 붕괴)';
+        targetEl.textContent = 'Target: app/demo/boundaries/layout.tsx';
+        descEl.innerHTML = 'Layout은 ErrorBoundary의 부모이므로, Layout에서 발생한 에러는 같은 폴더의 <code>error.tsx</code>가 잡지 못하고 상위 <code>app/error.tsx</code>로 버블링됩니다.';
+        stepsEl.innerHTML = `
+          <span class="step-label">가이드 단계:</span>
+          <button class="step-btn" onclick="triggerCrash('layout')">1. Layout 에러 발생</button>
+          <button class="step-btn" onclick="healServerAndRecover()">2. startTransition 복구</button>
+        `;
+      } else if (num === 3) {
+        titleEl.textContent = '시나리오 3: 루트 Layout 붕괴와 global-error.tsx';
+        targetEl.textContent = 'Target: app/layout.tsx (Root Layout)';
+        descEl.innerHTML = '최상위 <code>app/layout.tsx</code>가 붕괴하면 HTML/BODY 태그 자체가 깨지므로, 오직 자체 <code>&lt;html&gt;&lt;body&gt;</code>를 렌더링하는 <code>global-error.tsx</code>만이 최후의 방어선으로 동작합니다.';
+        stepsEl.innerHTML = `
+          <span class="step-label">가이드 단계:</span>
+          <button class="step-btn" onclick="triggerCrash('root_layout')">1. Root Layout 에러 발생</button>
+          <button class="step-btn" onclick="healServerAndRecover()">2. 새로고침 복구</button>
+        `;
+      } else if (num === 4) {
+        titleEl.textContent = '시나리오 4: 단순 reset() 함정 (RSC 캐시 루프)';
+        targetEl.textContent = 'Anti-Pattern: reset() without router.refresh()';
+        descEl.innerHTML = '비동기 서버 컴포넌트 에러 후 단순 <code>reset()</code>만 누르면 클라이언트 캐시에 남은 실패 RSC 페이로드를 재평가하여 즉시 에러가 재발생(복구 실패)하는 안티패턴을 재현합니다.';
+        stepsEl.innerHTML = `
+          <span class="step-label">가이드 단계:</span>
+          <button class="step-btn" onclick="triggerCrash('page')">1. Page 에러 발생</button>
+          <button class="step-btn" onclick="toggleServerHealth()">2. 서버 장애 해제</button>
+          <button class="step-btn" onclick="executeSimpleReset()">3. 단순 reset() 클릭 (실패 확인)</button>
+          <button class="step-btn" onclick="executeRecommendedRecovery()">4. 권장 복구 실행 (성공)</button>
+        `;
+      } else if (num === 5) {
+        titleEl.textContent = '시나리오 5: startTransition 복구 성공 표준';
+        targetEl.textContent = 'Standard: startTransition(() => { router.refresh(); reset(); })';
+        descEl.innerHTML = '<code>router.refresh()</code>로 서버에 최신 RSC 페이로드를 다시 요청하고 <code>startTransition</code>으로 감싸 바운더리를 안전하게 복구하는 표준 라이프사이클을 시연합니다.';
+        stepsEl.innerHTML = `
+          <span class="step-label">가이드 단계:</span>
+          <button class="step-btn" onclick="triggerCrash('page')">1. Page 에러 발생</button>
+          <button class="step-btn" onclick="toggleServerHealth()">2. 서버 정상화</button>
+          <button class="step-btn" onclick="executeRecommendedRecovery()">3. startTransition 복구 실행</button>
+        `;
+      }
+    }
+
+    // Render function updating UI based on state
+    function render() {
+      // 1. Controls & Badges
+      const serverStatusPill = document.getElementById('server-status-pill');
+      if (state.serverHealth === 'healthy') {
+        serverStatusPill.className = 'status-badge green';
+        serverStatusPill.textContent = '서버: 정상 (Healthy)';
+        document.getElementById('btn-health-label').textContent = '⚠️ 서버 장애 주입 (Inject Fault)';
+      } else {
+        serverStatusPill.className = 'status-badge red';
+        serverStatusPill.textContent = '서버: 장애 중 (Failing)';
+        document.getElementById('btn-health-label').textContent = '🔄 서버 정상화 (Fix Server Error)';
+      }
+
+      const cacheStatusPill = document.getElementById('cache-status-pill');
+      if (state.routerCache === 'clean') {
+        cacheStatusPill.className = 'status-badge green';
+        cacheStatusPill.textContent = 'RSC 캐시: 정상 (200 OK)';
+      } else {
+        cacheStatusPill.className = 'status-badge red';
+        cacheStatusPill.textContent = 'RSC 캐시: 에러 페이로드 포함';
+      }
+
+      const activeEbPill = document.getElementById('active-eb-pill');
+      if (!state.activeBoundary) {
+        activeEbPill.className = 'status-badge green';
+        activeEbPill.textContent = '활성 바운더리: 없음 (정상 렌더링)';
+      } else if (state.activeBoundary === 'seg_eb') {
+        activeEbPill.className = 'status-badge yellow';
+        activeEbPill.textContent = '활성 바운더리: demo/boundaries/error.tsx';
+      } else if (state.activeBoundary === 'root_eb') {
+        activeEbPill.className = 'status-badge red';
+        activeEbPill.textContent = '활성 바운더리: app/error.tsx (Root EB)';
+      } else if (state.activeBoundary === 'global_eb') {
+        activeEbPill.className = 'status-badge red';
+        activeEbPill.textContent = '활성 바운더리: app/global-error.tsx';
+      }
+
+      // 2. Component Tree Node Highlights
+      const nRootLayout = document.getElementById('node-root-layout');
+      const nGlobalEb = document.getElementById('node-global-eb');
+      const nRootEb = document.getElementById('node-root-eb');
+      const nSegLayout = document.getElementById('node-seg-layout');
+      const nSegEb = document.getElementById('node-seg-eb');
+      const nSegPage = document.getElementById('node-seg-page');
+
+      // Reset tree classes
+      [nRootLayout, nGlobalEb, nRootEb, nSegLayout, nSegEb, nSegPage].forEach(n => {
+        n.className = 'tree-node healthy';
+        n.querySelector('.status-text').textContent = '정상';
+      });
+
+      if (state.activeBoundary === 'global_eb') {
+        nRootLayout.className = 'tree-node crashed';
+        nRootLayout.querySelector('.status-text').textContent = '💥 크래시';
+        nGlobalEb.className = 'tree-node active-eb';
+        nGlobalEb.querySelector('.status-text').textContent = '🛡️ 활성화 (Catch)';
+        [nRootEb, nSegLayout, nSegEb, nSegPage].forEach(n => {
+          n.className = 'tree-node unmounted';
+          n.querySelector('.status-text').textContent = '언마운트됨';
+        });
+      } else if (state.activeBoundary === 'root_eb') {
+        nSegLayout.className = 'tree-node crashed';
+        nSegLayout.querySelector('.status-text').textContent = '💥 크래시';
+        nSegEb.className = 'tree-node unmounted';
+        nSegEb.querySelector('.status-text').textContent = '포착 불가 (자식)';
+        nSegPage.className = 'tree-node unmounted';
+        nSegPage.querySelector('.status-text').textContent = '언마운트됨';
+        nRootEb.className = 'tree-node active-eb';
+        nRootEb.querySelector('.status-text').textContent = '🛡️ 활성화 (Catch)';
+      } else if (state.activeBoundary === 'seg_eb') {
+        nSegPage.className = 'tree-node crashed';
+        nSegPage.querySelector('.status-text').textContent = '💥 크래시';
+        nSegEb.className = 'tree-node active-eb';
+        nSegEb.querySelector('.status-text').textContent = '🛡️ 활성화 (Catch)';
+      }
+
+      // 3. Viewport Preview UI elements
+      const rootGnb = document.getElementById('root-gnb');
+      const segmentShell = document.getElementById('segment-shell');
+      const rootErrorView = document.getElementById('root-error-view');
+      const globalErrorView = document.getElementById('global-error-view');
+      const healthyPageView = document.getElementById('healthy-page-view');
+      const segmentErrorView = document.getElementById('segment-error-view');
+      const browserUrl = document.getElementById('browser-url');
+
+      if (state.activeBoundary === 'global_eb') {
+        // Global error replaces everything including Root Layout
+        rootGnb.style.display = 'none';
+        segmentShell.style.display = 'none';
+        rootErrorView.style.display = 'none';
+        globalErrorView.style.display = 'block';
+        document.getElementById('global-error-digest').textContent = `Digest: ${state.lastDigest}`;
+        browserUrl.textContent = 'https://example.com/demo/boundaries?chaos=unexpected&scope=root_layout';
+      } else if (state.activeBoundary === 'root_eb') {
+        // Root error replaces segment shell, but Root GNB is preserved!
+        rootGnb.style.display = 'flex';
+        segmentShell.style.display = 'none';
+        rootErrorView.style.display = 'block';
+        globalErrorView.style.display = 'none';
+        document.getElementById('root-error-digest').textContent = `Digest: ${state.lastDigest}`;
+        browserUrl.textContent = 'https://example.com/demo/boundaries?chaos=unexpected&scope=layout';
+      } else if (state.activeBoundary === 'seg_eb') {
+        // Segment error replaces page only, Segment layout (sidebar) & Root GNB preserved!
+        rootGnb.style.display = 'flex';
+        segmentShell.style.display = 'flex';
+        rootErrorView.style.display = 'none';
+        globalErrorView.style.display = 'none';
+        healthyPageView.style.display = 'none';
+        segmentErrorView.style.display = 'block';
+        document.getElementById('segment-error-digest').textContent = `Digest: ${state.lastDigest}`;
+        browserUrl.textContent = 'https://example.com/demo/boundaries?chaos=unexpected&scope=page';
+      } else {
+        // Normal healthy view
+        rootGnb.style.display = 'flex';
+        segmentShell.style.display = 'flex';
+        rootErrorView.style.display = 'none';
+        globalErrorView.style.display = 'none';
+        healthyPageView.style.display = 'block';
+        segmentErrorView.style.display = 'none';
+        browserUrl.textContent = 'https://example.com/demo/boundaries';
+      }
+    }
+
+    // Initialize on load
+    render();
+  </script>
+</body>
+</html>
